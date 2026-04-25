@@ -1,0 +1,1034 @@
+[1mdiff --git a/backend/app/ai/__init__.py b/backend/app/ai/__init__.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..e69de29[m
+[1mdiff --git a/backend/app/ai/inference.py b/backend/app/ai/inference.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..13806c4[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/ai/inference.py[m
+[36m@@ -0,0 +1,16 @@[m
+[32m+[m[32mimport io[m
+[32m+[m[32mfrom PIL import Image[m
+[32m+[m[32mimport random[m
+[32m+[m
+[32m+[m[32mclass LumenAIModel:[m
+[32m+[m[32m    def __init__(self, model_path=None):[m
+[32m+[m[32m        self.model_path = model_path[m
+[32m+[m
+[32m+[m[32m    def predict(self, image_bytes: bytes):[m
+[32m+[m[32m        Image.open(io.BytesIO(image_bytes)).convert("RGB")[m
+[32m+[m[32m        conf = round(random.random(), 2)[m
+[32m+[m[32m        return {[m
+[32m+[m[32m            "stain_detected": conf > 0.5,[m
+[32m+[m[32m            "confidence": conf,[m
+[32m+[m[32m            "material_type": "stainless_steel" if conf > 0.5 else "polymer",[m
+[32m+[m[32m        }[m
+[1mdiff --git a/backend/app/core/config.py b/backend/app/core/config.py[m
+[1mindex d5e4dd5..358bb60 100644[m
+[1m--- a/backend/app/core/config.py[m
+[1m+++ b/backend/app/core/config.py[m
+[36m@@ -1,14 +1,14 @@[m
+[31m-import os[m
+[31m-from pydantic import BaseModel[m
+[31m-[m
+[31m-class Settings(BaseModel):[m
+[31m-    SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret")[m
+[31m-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))[m
+[31m-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@db:5432/lumenai")[m
+[31m-    S3_BUCKET: str = os.getenv("S3_BUCKET", "lumenai-artifacts")[m
+[31m-    S3_ENDPOINT: str = os.getenv("S3_ENDPOINT", "http://minio:9000")[m
+[31m-    S3_ACCESS_KEY: str = os.getenv("S3_ACCESS_KEY", "")[m
+[31m-    S3_SECRET_KEY: str = os.getenv("S3_SECRET_KEY", "")[m
+[31m-    S3_REGION: str = os.getenv("S3_REGION", "us-east-1")[m
+[31m-[m
+[31m-settings = Settings()[m
+[32m+[m[32mimport os[m[41m[m
+[32m+[m[32mfrom pydantic import BaseModel[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mclass Settings(BaseModel):[m[41m[m
+[32m+[m[32m    SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret")[m[41m[m
+[32m+[m[32m    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))[m[41m[m
+[32m+[m[32m    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@db:5432/lumenai")[m[41m[m
+[32m+[m[32m    S3_BUCKET: str = os.getenv("S3_BUCKET", "lumenai-artifacts")[m[41m[m
+[32m+[m[32m    S3_ENDPOINT: str = os.getenv("S3_ENDPOINT", "http://minio:9000")[m[41m[m
+[32m+[m[32m    S3_ACCESS_KEY: str = os.getenv("S3_ACCESS_KEY", "")[m[41m[m
+[32m+[m[32m    S3_SECRET_KEY: str = os.getenv("S3_SECRET_KEY", "")[m[41m[m
+[32m+[m[32m    S3_REGION: str = os.getenv("S3_REGION", "us-east-1")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32msettings = Settings()[m[41m[m
+[1mdiff --git a/backend/app/core/settings.py b/backend/app/core/settings.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..bae438e[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/core/settings.py[m
+[36m@@ -0,0 +1,10 @@[m
+[32m+[m[32mimport os[m
+[32m+[m[32mfrom pydantic import BaseModel[m
+[32m+[m
+[32m+[m[32mclass Settings(BaseModel):[m
+[32m+[m[32m    MONGO_URI: str = os.getenv("MONGO_URI", "")[m
+[32m+[m[32m    DB_NAME: str = os.getenv("DB_NAME", "lumenai")[m
+[32m+[m[32m    API_PREFIX: str = "/api"[m
+[32m+[m[32m    CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")[m
+[32m+[m
+[32m+[m[32msettings = Settings()[m
+[1mdiff --git a/backend/app/db/__init__.py b/backend/app/db/__init__.py[m
+[1mindex e69de29..682c5d1 100644[m
+[1m--- a/backend/app/db/__init__.py[m
+[1m+++ b/backend/app/db/__init__.py[m
+[36m@@ -0,0 +1,2 @@[m
+[32m+[m[32mfrom app.db.session import Base, SessionLocal, engine  # noqa: F401[m
+[32m+[m[32mfrom app.db import models  # noqa: F401[m
+[1mdiff --git a/backend/app/db/base.py b/backend/app/db/base.py[m
+[1mindex a204e68..846433e 100644[m
+[1m--- a/backend/app/db/base.py[m
+[1m+++ b/backend/app/db/base.py[m
+[36m@@ -1,2 +1,2 @@[m
+[31m-from sqlalchemy.orm import DeclarativeBase[m
+[31m-class Base(DeclarativeBase): pass[m
+[32m+[m[32mfrom sqlalchemy.orm import DeclarativeBase[m[41m[m
+[32m+[m[32mclass Base(DeclarativeBase): pass[m[41m[m
+[1mdiff --git a/backend/app/db/models.py b/backend/app/db/models.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..bc85128[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/db/models.py[m
+[36m@@ -0,0 +1,18 @@[m
+[32m+[m[32mfrom sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, func[m
+[32m+[m
+[32m+[m[32mfrom app.db.session import Base[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass Inspection(Base):[m
+[32m+[m[32m    __tablename__ = "inspections"[m
+[32m+[m
+[32m+[m[32m    id = Column(Integer, primary_key=True, index=True)[m
+[32m+[m[32m    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)[m
+[32m+[m
+[32m+[m[32m    file_name = Column(String(512), nullable=False)[m
+[32m+[m[32m    stain_detected = Column(Boolean, nullable=False)[m
+[32m+[m[32m    confidence = Column(Float, nullable=False)[m
+[32m+[m[32m    material_type = Column(String(128), nullable=False)[m
+[32m+[m
+[32m+[m[32m    # Optional, but useful for UI[m
+[32m+[m[32m    status = Column(String(32), nullable=False, server_default="completed")[m
+[1mdiff --git a/backend/app/db/session.py b/backend/app/db/session.py[m
+[1mindex 1c5b871..1f1aa97 100644[m
+[1m--- a/backend/app/db/session.py[m
+[1m+++ b/backend/app/db/session.py[m
+[36m@@ -1,6 +1,38 @@[m
+ from sqlalchemy import create_engine[m
+[31m-from sqlalchemy.orm import sessionmaker[m
+[31m-from backend.app.core.config import settings[m
+[32m+[m[32mfrom sqlalchemy.orm import declarative_base, sessionmaker[m
+ [m
+[31m-engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)[m
+[31m-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)[m
+[32m+[m[32mfrom app.core.settings import settings[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef _get_db_url() -> str:[m
+[32m+[m[32m    # Try a few likely names on the Settings object[m
+[32m+[m[32m    for attr in ("DATABASE_URL", "DB_URL", "SQLALCHEMY_DATABASE_URI"):[m
+[32m+[m[32m        val = getattr(settings, attr, None)[m
+[32m+[m[32m        if val:[m
+[32m+[m[32m            return val[m
+[32m+[m
+[32m+[m[32m    # Fallback: local SQLite file inside the container[m
+[32m+[m[32m    return "sqlite:///./lumenai.db"[m
+[32m+[m
+[32m+[m
+[32m+[m[32mDATABASE_URL = _get_db_url()[m
+[32m+[m
+[32m+[m[32mconnect_args = {}[m
+[32m+[m[32mif DATABASE_URL.startswith("sqlite"):[m
+[32m+[m[32m    connect_args = {"check_same_thread": False}[m
+[32m+[m
+[32m+[m[32mengine = create_engine([m
+[32m+[m[32m    DATABASE_URL,[m
+[32m+[m[32m    future=True,[m
+[32m+[m[32m    pool_pre_ping=True,[m
+[32m+[m[32m    connect_args=connect_args,[m
+[32m+[m[32m)[m
+[32m+[m
+[32m+[m[32mSessionLocal = sessionmaker([m
+[32m+[m[32m    bind=engine,[m
+[32m+[m[32m    autoflush=False,[m
+[32m+[m[32m    autocommit=False,[m
+[32m+[m[32m    future=True,[m
+[32m+[m[32m)[m
+[32m+[m
+[32m+[m[32mBase = declarative_base()[m
+[1mdiff --git a/backend/app/deps.py b/backend/app/deps.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..c0767d1[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/deps.py[m
+[36m@@ -0,0 +1,13 @@[m
+[32m+[m[32mfrom collections.abc import Generator[m
+[32m+[m
+[32m+[m[32mfrom sqlalchemy.orm import Session[m
+[32m+[m
+[32m+[m[32mfrom app.db import SessionLocal[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef get_db() -> Generator[Session, None, None]:[m
+[32m+[m[32m    db = SessionLocal()[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        yield db[m
+[32m+[m[32m    finally:[m
+[32m+[m[32m        db.close()[m
+[1mdiff --git a/backend/app/main.py b/backend/app/main.py[m
+[1mindex 8eff198..ebd1ffe 100644[m
+[1m--- a/backend/app/main.py[m
+[1m+++ b/backend/app/main.py[m
+[36m@@ -1,26 +1,32 @@[m
+[31m-from fastapi import FastAPI[m
+[31m-from backend.app.routers import uploads[m
+[31m-from backend.app.db.session import engine[m
+[31m-from backend.app.db.base import Base[m
+[31m-from backend.app.models import user, review  # ensure models are registered[m
+[31m-from backend.app.routers import auth as auth_router[m
+[31m-from backend.app.routers import users as users_router[m
+[31m-from backend.app.routers import reviews as reviews_router[m
+[31m-[m
+[31m-app = FastAPI(title="LumenAI API")[m
+[31m-app.include_router(uploads.router)[m
+[31m-[m
+[31m-@app.get("/health")[m
+[31m-def health():[m
+[31m-    return {"ok": True}[m
+[31m-[m
+[31m-@app.on_event("startup")[m
+[31m-def on_startup():[m
+[31m-    try:[m
+[31m-        Base.metadata.create_all(bind=engine)[m
+[31m-    except Exception as e:[m
+[31m-        print("DB init warning:", e)[m
+[31m-[m
+[31m-app.include_router(auth_router.router)[m
+[31m-app.include_router(users_router.router)[m
+[31m-app.include_router(reviews_router.router)[m
+[32m+[m[32mfrom fastapi import FastAPI[m
+[32m+[m[32mfrom fastapi.middleware.cors import CORSMiddleware[m
+[32m+[m
+[32m+[m[32mfrom app.core.settings import settings[m
+[32m+[m[32mfrom app.routes.system import router as system_router[m
+[32m+[m[32mfrom app.routes.inspect import router as inspect_router[m
+[32m+[m[32mfrom app.routes.history import router as history_router[m
+[32m+[m[32mfrom app.routes.reports import router as reports_router[m
+[32m+[m[32mfrom app.db import Base, engine[m
+[32m+[m
+[32m+[m[32mapp = FastAPI(title="LumenAI API")[m
+[32m+[m
+[32m+[m[32mapp.add_middleware([m
+[32m+[m[32m    CORSMiddleware,[m
+[32m+[m[32m    allow_origins=settings.CORS_ORIGINS,[m
+[32m+[m[32m    allow_credentials=True,[m
+[32m+[m[32m    allow_methods=["*"],[m
+[32m+[m[32m    allow_headers=["*"],[m
+[32m+[m[32m)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@app.on_event("startup")[m
+[32m+[m[32masync def _startup() -> None:[m
+[32m+[m[32m    # Create database tables if they don't exist[m
+[32m+[m[32m    Base.metadata.create_all(bind=engine)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# Routers (all sharing /api prefix)[m
+[32m+[m[32mapp.include_router(system_router, prefix=settings.API_PREFIX)[m
+[32m+[m[32mapp.include_router(inspect_router, prefix=settings.API_PREFIX)[m
+[32m+[m[32mapp.include_router(history_router, prefix=settings.API_PREFIX)[m
+[32m+[m[32mapp.include_router(reports_router, prefix=settings.API_PREFIX)[m
+[1mdiff --git a/backend/app/main.py.bak b/backend/app/main.py.bak[m
+[1mnew file mode 100644[m
+[1mindex 0000000..8eff198[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/main.py.bak[m
+[36m@@ -0,0 +1,26 @@[m
+[32m+[m[32mfrom fastapi import FastAPI[m[41m[m
+[32m+[m[32mfrom backend.app.routers import uploads[m
+[32m+[m[32mfrom backend.app.db.session import engine[m[41m[m
+[32m+[m[32mfrom backend.app.db.base import Base[m[41m[m
+[32m+[m[32mfrom backend.app.models import user, review  # ensure models are registered[m[41m[m
+[32m+[m[32mfrom backend.app.routers import auth as auth_router[m[41m[m
+[32m+[m[32mfrom backend.app.routers import users as users_router[m[41m[m
+[32m+[m[32mfrom backend.app.routers import reviews as reviews_router[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mapp = FastAPI(title="LumenAI API")[m[41m[m
+[32m+[m[32mapp.include_router(uploads.router)[m
+[32m+[m[41m[m
+[32m+[m[32m@app.get("/health")[m[41m[m
+[32m+[m[32mdef health():[m[41m[m
+[32m+[m[32m    return {"ok": True}[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@app.on_event("startup")[m[41m[m
+[32m+[m[32mdef on_startup():[m[41m[m
+[32m+[m[32m    try:[m[41m[m
+[32m+[m[32m        Base.metadata.create_all(bind=engine)[m[41m[m
+[32m+[m[32m    except Exception as e:[m[41m[m
+[32m+[m[32m        print("DB init warning:", e)[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mapp.include_router(auth_router.router)[m[41m[m
+[32m+[m[32mapp.include_router(users_router.router)[m[41m[m
+[32m+[m[32mapp.include_router(reviews_router.router)[m[41m[m
+[1mdiff --git a/backend/app/models/inspection.py b/backend/app/models/inspection.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..ddd9c9a[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/models/inspection.py[m
+[36m@@ -0,0 +1,15 @@[m
+[32m+[m[32mfrom pydantic import BaseModel, Field[m
+[32m+[m[32mfrom typing import Optional[m
+[32m+[m[32mfrom datetime import datetime[m
+[32m+[m
+[32m+[m[32mclass InferenceResult(BaseModel):[m
+[32m+[m[32m    stain_detected: bool[m
+[32m+[m[32m    confidence: float = Field(ge=0, le=1)[m
+[32m+[m[32m    material_type: str[m
+[32m+[m
+[32m+[m[32mclass InspectionOut(BaseModel):[m
+[32m+[m[32m    instrument_name: str[m
+[32m+[m[32m    results: InferenceResult[m
+[32m+[m[32m    status: str = "processed"[m
+[32m+[m[32m    timestamp: datetime[m
+[32m+[m[32m    id: Optional[str] = None[m
+[1mdiff --git a/backend/app/models/review.py b/backend/app/models/review.py[m
+[1mindex 4787bc0..26eda3b 100644[m
+[1m--- a/backend/app/models/review.py[m
+[1m+++ b/backend/app/models/review.py[m
+[36m@@ -1,31 +1,31 @@[m
+[31m-from __future__ import annotations[m
+[31m-from datetime import datetime[m
+[31m-from typing import List, Optional[m
+[31m-[m
+[31m-from sqlalchemy import String, Float, Text, ForeignKey, DateTime, func[m
+[31m-from sqlalchemy.orm import Mapped, mapped_column, relationship[m
+[31m-from backend.app.db.base import Base[m
+[31m-[m
+[31m-class ReviewItem(Base):[m
+[31m-    __tablename__ = "review_items"[m
+[31m-[m
+[31m-    id: Mapped[int] = mapped_column(primary_key=True)[m
+[31m-    image_url: Mapped[str] = mapped_column(Text)[m
+[31m-    predicted_label: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)[m
+[31m-    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)[m
+[31m-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())[m
+[31m-    feedbacks: Mapped[List["ReviewFeedback"]] = relationship([m
+[31m-        back_populates="item",[m
+[31m-        cascade="all, delete-orphan"[m
+[31m-    )[m
+[31m-[m
+[31m-class ReviewFeedback(Base):[m
+[31m-    __tablename__ = "review_feedback"[m
+[31m-[m
+[31m-    id: Mapped[int] = mapped_column(primary_key=True)[m
+[31m-    item_id: Mapped[int] = mapped_column(ForeignKey("review_items.id", ondelete="CASCADE"), index=True)[m
+[31m-    true_label: Mapped[str] = mapped_column(String(64))[m
+[31m-    reviewer: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)[m
+[31m-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())[m
+[31m-[m
+[31m-    item: Mapped["ReviewItem"] = relationship(back_populates="feedbacks")[m
+[32m+[m[32mfrom __future__ import annotations[m[41m[m
+[32m+[m[32mfrom datetime import datetime[m[41m[m
+[32m+[m[32mfrom typing import List, Optional[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mfrom sqlalchemy import String, Float, Text, ForeignKey, DateTime, func[m[41m[m
+[32m+[m[32mfrom sqlalchemy.orm import Mapped, mapped_column, relationship[m[41m[m
+[32m+[m[32mfrom backend.app.db.base import Base[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mclass ReviewItem(Base):[m[41m[m
+[32m+[m[32m    __tablename__ = "review_items"[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(primary_key=True)[m[41m[m
+[32m+[m[32m    image_url: Mapped[str] = mapped_column(Text)[m[41m[m
+[32m+[m[32m    predicted_label: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)[m[41m[m
+[32m+[m[32m    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)[m[41m[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())[m[41m[m
+[32m+[m[32m    feedbacks: Mapped[List["ReviewFeedback"]] = relationship([m[41m[m
+[32m+[m[32m        back_populates="item",[m[41m[m
+[32m+[m[32m        cascade="all, delete-orphan"[m[41m[m
+[32m+[m[32m    )[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mclass ReviewFeedback(Base):[m[41m[m
+[32m+[m[32m    __tablename__ = "review_feedback"[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(primary_key=True)[m[41m[m
+[32m+[m[32m    item_id: Mapped[int] = mapped_column(ForeignKey("review_items.id", ondelete="CASCADE"), index=True)[m[41m[m
+[32m+[m[32m    true_label: Mapped[str] = mapped_column(String(64))[m[41m[m
+[32m+[m[32m    reviewer: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)[m[41m[m
+[32m+[m[32m    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    item: Mapped["ReviewItem"] = relationship(back_populates="feedbacks")[m[41m[m
+[1mdiff --git a/backend/app/models/user.py b/backend/app/models/user.py[m
+[1mindex e3bcbb8..634e948 100644[m
+[1m--- a/backend/app/models/user.py[m
+[1m+++ b/backend/app/models/user.py[m
+[36m@@ -1,11 +1,11 @@[m
+[31m-from sqlalchemy import String, Boolean[m
+[31m-from sqlalchemy.orm import Mapped, mapped_column[m
+[31m-from backend.app.db.base import Base[m
+[31m-[m
+[31m-class User(Base):[m
+[31m-    __tablename__ = "users"[m
+[31m-[m
+[31m-    id: Mapped[int] = mapped_column(primary_key=True, index=True)[m
+[31m-    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)[m
+[31m-    password_hash: Mapped[str] = mapped_column(String(255))[m
+[31m-    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)[m
+[32m+[m[32mfrom sqlalchemy import String, Boolean[m[41m[m
+[32m+[m[32mfrom sqlalchemy.orm import Mapped, mapped_column[m[41m[m
+[32m+[m[32mfrom backend.app.db.base import Base[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mclass User(Base):[m[41m[m
+[32m+[m[32m    __tablename__ = "users"[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m    id: Mapped[int] = mapped_column(primary_key=True, index=True)[m[41m[m
+[32m+[m[32m    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)[m[41m[m
+[32m+[m[32m    password_hash: Mapped[str] = mapped_column(String(255))[m[41m[m
+[32m+[m[32m    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)[m[41m[m
+[1mdiff --git a/backend/app/routers/auth.py b/backend/app/routers/auth.py[m
+[1mindex 04668e2..fce5553 100644[m
+[1m--- a/backend/app/routers/auth.py[m
+[1m+++ b/backend/app/routers/auth.py[m
+[36m@@ -1,36 +1,36 @@[m
+[31m-from fastapi import APIRouter, Depends, HTTPException, Request[m
+[31m-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer[m
+[31m-from sqlalchemy.orm import Session[m
+[31m-from backend.app.db.session import SessionLocal[m
+[31m-from backend.app.models.user import User[m
+[31m-from backend.app.schemas.auth import Token[m
+[31m-from backend.app.services.security import verify_password, make_token[m
+[31m-from backend.app.core.config import settings[m
+[31m-import jwt[m
+[31m-from jwt import InvalidTokenError[m
+[31m-[m
+[31m-router = APIRouter(prefix="/auth", tags=["auth"])[m
+[31m-oauth2 = OAuth2PasswordBearer(tokenUrl="/auth/login")[m
+[31m-[m
+[31m-def get_db():[m
+[31m-    db = SessionLocal()[m
+[31m-    try: yield db[m
+[31m-    finally: db.close()[m
+[31m-[m
+[31m-@router.post("/login", response_model=Token)[m
+[31m-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):[m
+[31m-    user = db.query(User).filter(User.username == form.username).first()[m
+[31m-    if not user or not verify_password(form.password, user.password_hash):[m
+[31m-        raise HTTPException(status_code=401, detail="Invalid credentials")[m
+[31m-    return Token(access_token=make_token(user.username))[m
+[31m-[m
+[31m-def get_current_user(request: Request) -> str:[m
+[31m-    auth = request.headers.get("Authorization","")[m
+[31m-    if not auth.startswith("Bearer "):[m
+[31m-        raise HTTPException(status_code=401, detail="Missing token")[m
+[31m-    token = auth.split(" ",1)[1][m
+[31m-    try:[m
+[31m-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])[m
+[31m-        return payload.get("sub") or "unknown"[m
+[31m-    except InvalidTokenError:[m
+[31m-        raise HTTPException(status_code=401, detail="Invalid token")[m
+[32m+[m[32mfrom fastapi import APIRouter, Depends, HTTPException, Request[m[41m[m
+[32m+[m[32mfrom fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer[m[41m[m
+[32m+[m[32mfrom sqlalchemy.orm import Session[m[41m[m
+[32m+[m[32mfrom backend.app.db.session import SessionLocal[m[41m[m
+[32m+[m[32mfrom backend.app.models.user import User[m[41m[m
+[32m+[m[32mfrom backend.app.schemas.auth import Token[m[41m[m
+[32m+[m[32mfrom backend.app.services.security import verify_password, make_token[m[41m[m
+[32m+[m[32mfrom backend.app.core.config import settings[m[41m[m
+[32m+[m[32mimport jwt[m[41m[m
+[32m+[m[32mfrom jwt import InvalidTokenError[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mrouter = APIRouter(prefix="/auth", tags=["auth"])[m[41m[m
+[32m+[m[32moauth2 = OAuth2PasswordBearer(tokenUrl="/auth/login")[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mdef get_db():[m[41m[m
+[32m+[m[32m    db = SessionLocal()[m[41m[m
+[32m+[m[32m    try: yield db[m[41m[m
+[32m+[m[32m    finally: db.close()[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@router.post("/login", response_model=Token)[m[41m[m
+[32m+[m[32mdef login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):[m[41m[m
+[32m+[m[32m    user = db.query(User).filter(User.username == form.username).first()[m[41m[m
+[32m+[m[32m    if not user or not verify_password(form.password, user.password_hash):[m[41m[m
+[32m+[m[32m        raise HTTPException(status_code=401, detail="Invalid credentials")[m[41m[m
+[32m+[m[32m    return Token(access_token=make_token(user.username))[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mdef get_current_user(request: Request) -> str:[m[41m[m
+[32m+[m[32m    auth = request.headers.get("Authorization","")[m[41m[m
+[32m+[m[32m    if not auth.startswith("Bearer "):[m[41m[m
+[32m+[m[32m        raise HTTPException(status_code=401, detail="Missing token")[m[41m[m
+[32m+[m[32m    token = auth.split(" ",1)[1][m[41m[m
+[32m+[m[32m    try:[m[41m[m
+[32m+[m[32m        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])[m[41m[m
+[32m+[m[32m        return payload.get("sub") or "unknown"[m[41m[m
+[32m+[m[32m    except InvalidTokenError:[m[41m[m
+[32m+[m[32m        raise HTTPException(status_code=401, detail="Invalid token")[m[41m[m
+[1mdiff --git a/backend/app/routers/reviews.py b/backend/app/routers/reviews.py[m
+[1mindex ca58f24..ee532d2 100644[m
+[1m--- a/backend/app/routers/reviews.py[m
+[1m+++ b/backend/app/routers/reviews.py[m
+[36m@@ -1,40 +1,40 @@[m
+[31m-from fastapi import APIRouter, Depends, HTTPException[m
+[31m-from sqlalchemy.orm import Session[m
+[31m-from typing import List[m
+[31m-from backend.app.db.session import SessionLocal[m
+[31m-from backend.app.models.review import ReviewItem, ReviewFeedback[m
+[31m-from backend.app.schemas.review import ReviewItemOut, FeedbackIn, ExportRow[m
+[31m-from backend.app.routers.auth import get_current_user[m
+[31m-[m
+[31m-router = APIRouter(prefix="/reviews", tags=["reviews"])[m
+[31m-[m
+[31m-def get_db():[m
+[31m-    db = SessionLocal()[m
+[31m-    try: yield db[m
+[31m-    finally: db.close()[m
+[31m-[m
+[31m-@router.post("/seed", response_model=List[ReviewItemOut])[m
+[31m-def seed(n: int = 5, db: Session = Depends(get_db), username: str = Depends(get_current_user)):[m
+[31m-    base = "https://picsum.photos/seed"[m
+[31m-    items = [ReviewItem(image_url=f"{base}/{i}/800/600", predicted_label=None, confidence=None) for i in range(n)][m
+[31m-    db.add_all(items); db.commit()[m
+[31m-    for it in items: db.refresh(it)[m
+[31m-    return items[m
+[31m-[m
+[31m-@router.get("/queue", response_model=List[ReviewItemOut])[m
+[31m-def queue(limit: int = 20, db: Session = Depends(get_db), username: str = Depends(get_current_user)):[m
+[31m-    return db.query(ReviewItem).order_by(ReviewItem.id.desc()).limit(limit).all()[m
+[31m-[m
+[31m-@router.post("/feedback")[m
+[31m-def post_feedback(body: FeedbackIn, db: Session = Depends(get_db), username: str = Depends(get_current_user)):[m
+[31m-    item = db.query(ReviewItem).get(body.item_id)[m
+[31m-    if not item: raise HTTPException(status_code=404, detail="item not found")[m
+[31m-    db.add(ReviewFeedback(item_id=item.id, true_label=body.true_label, reviewer=username)); db.commit()[m
+[31m-    return {"ok": True}[m
+[31m-[m
+[31m-@router.get("/export", response_model=List[ExportRow])[m
+[31m-def export(db: Session = Depends(get_db), username: str = Depends(get_current_user)):[m
+[31m-    rows = (db.query(ReviewFeedback.true_label, ReviewItem.image_url)[m
+[31m-              .join(ReviewItem, ReviewItem.id == ReviewFeedback.item_id)[m
+[31m-              .all())[m
+[31m-    return [ExportRow(image_url=u, label=lbl) for (lbl, u) in [(r[1], r[0]) for r in rows]][m
+[32m+[m[32mfrom fastapi import APIRouter, Depends, HTTPException[m[41m[m
+[32m+[m[32mfrom sqlalchemy.orm import Session[m[41m[m
+[32m+[m[32mfrom typing import List[m[41m[m
+[32m+[m[32mfrom backend.app.db.session import SessionLocal[m[41m[m
+[32m+[m[32mfrom backend.app.models.review import ReviewItem, ReviewFeedback[m[41m[m
+[32m+[m[32mfrom backend.app.schemas.review import ReviewItemOut, FeedbackIn, ExportRow[m[41m[m
+[32m+[m[32mfrom backend.app.routers.auth import get_current_user[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mrouter = APIRouter(prefix="/reviews", tags=["reviews"])[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mdef get_db():[m[41m[m
+[32m+[m[32m    db = SessionLocal()[m[41m[m
+[32m+[m[32m    try: yield db[m[41m[m
+[32m+[m[32m    finally: db.close()[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@router.post("/seed", response_model=List[ReviewItemOut])[m[41m[m
+[32m+[m[32mdef seed(n: int = 5, db: Session = Depends(get_db), username: str = Depends(get_current_user)):[m[41m[m
+[32m+[m[32m    base = "https://picsum.photos/seed"[m[41m[m
+[32m+[m[32m    items = [ReviewItem(image_url=f"{base}/{i}/800/600", predicted_label=None, confidence=None) for i in range(n)][m[41m[m
+[32m+[m[32m    db.add_all(items); db.commit()[m[41m[m
+[32m+[m[32m    for it in items: db.refresh(it)[m[41m[m
+[32m+[m[32m    return items[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@router.get("/queue", response_model=List[ReviewItemOut])[m[41m[m
+[32m+[m[32mdef queue(limit: int = 20, db: Session = Depends(get_db), username: str = Depends(get_current_user)):[m[41m[m
+[32m+[m[32m    return db.query(ReviewItem).order_by(ReviewItem.id.desc()).limit(limit).all()[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@router.post("/feedback")[m[41m[m
+[32m+[m[32mdef post_feedback(body: FeedbackIn, db: Session = Depends(get_db), username: str = Depends(get_current_user)):[m[41m[m
+[32m+[m[32m    item = db.query(ReviewItem).get(body.item_id)[m[41m[m
+[32m+[m[32m    if not item: raise HTTPException(status_code=404, detail="item not found")[m[41m[m
+[32m+[m[32m    db.add(ReviewFeedback(item_id=item.id, true_label=body.true_label, reviewer=username)); db.commit()[m[41m[m
+[32m+[m[32m    return {"ok": True}[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@router.get("/export", response_model=List[ExportRow])[m[41m[m
+[32m+[m[32mdef export(db: Session = Depends(get_db), username: str = Depends(get_current_user)):[m[41m[m
+[32m+[m[32m    rows = (db.query(ReviewFeedback.true_label, ReviewItem.image_url)[m[41m[m
+[32m+[m[32m              .join(ReviewItem, ReviewItem.id == ReviewFeedback.item_id)[m[41m[m
+[32m+[m[32m              .all())[m[41m[m
+[32m+[m[32m    return [ExportRow(image_url=u, label=lbl) for (lbl, u) in [(r[1], r[0]) for r in rows]][m[41m[m
+[1mdiff --git a/backend/app/routers/users.py b/backend/app/routers/users.py[m
+[1mindex 9a94dca..29385e5 100644[m
+[1m--- a/backend/app/routers/users.py[m
+[1m+++ b/backend/app/routers/users.py[m
+[36m@@ -1,19 +1,19 @@[m
+[31m-from fastapi import APIRouter, Depends[m
+[31m-from sqlalchemy.orm import Session[m
+[31m-from backend.app.db.session import SessionLocal[m
+[31m-from backend.app.models.user import User[m
+[31m-from backend.app.services.security import hash_password[m
+[31m-[m
+[31m-router = APIRouter(prefix="/users", tags=["users"])[m
+[31m-[m
+[31m-def get_db():[m
+[31m-    db = SessionLocal()[m
+[31m-    try: yield db[m
+[31m-    finally: db.close()[m
+[31m-[m
+[31m-@router.post("/seed_admin")[m
+[31m-def seed_admin(db: Session = Depends(get_db)):[m
+[31m-    if not db.query(User).filter(User.username == "admin").first():[m
+[31m-        db.add(User(username="admin", password_hash=hash_password("admin123"), is_admin=True))[m
+[31m-        db.commit()[m
+[31m-    return {"ok": True}[m
+[32m+[m[32mfrom fastapi import APIRouter, Depends[m[41m[m
+[32m+[m[32mfrom sqlalchemy.orm import Session[m[41m[m
+[32m+[m[32mfrom backend.app.db.session import SessionLocal[m[41m[m
+[32m+[m[32mfrom backend.app.models.user import User[m[41m[m
+[32m+[m[32mfrom backend.app.services.security import hash_password[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mrouter = APIRouter(prefix="/users", tags=["users"])[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mdef get_db():[m[41m[m
+[32m+[m[32m    db = SessionLocal()[m[41m[m
+[32m+[m[32m    try: yield db[m[41m[m
+[32m+[m[32m    finally: db.close()[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32m@router.post("/seed_admin")[m[41m[m
+[32m+[m[32mdef seed_admin(db: Session = Depends(get_db)):[m[41m[m
+[32m+[m[32m    if not db.query(User).filter(User.username == "admin").first():[m[41m[m
+[32m+[m[32m        db.add(User(username="admin", password_hash=hash_password("admin123"), is_admin=True))[m[41m[m
+[32m+[m[32m        db.commit()[m[41m[m
+[32m+[m[32m    return {"ok": True}[m[41m[m
+[1mdiff --git a/backend/app/routes/__init__.py b/backend/app/routes/__init__.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..e69de29[m
+[1mdiff --git a/backend/app/routes/auth.py b/backend/app/routes/auth.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..c503c2d[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/routes/auth.py[m
+[36m@@ -0,0 +1,18 @@[m
+[32m+[m[32mfrom fastapi import APIRouter, Form[m
+[32m+[m[32mfrom pydantic import BaseModel[m
+[32m+[m
+[32m+[m[32mrouter = APIRouter()[m
+[32m+[m
+[32m+[m[32mclass Token(BaseModel):[m
+[32m+[m[32m    access_token: str[m
+[32m+[m[32m    token_type: str = "bearer"[m
+[32m+[m
+[32m+[m[32m@router.post("/api/auth/login", response_model=Token)[m
+[32m+[m[32masync def login([m
+[32m+[m[32m    username: str = Form(...),[m
+[32m+[m[32m    password: str = Form(...),[m
+[32m+[m[32m    grant_type: str = Form(default="password"),[m
+[32m+[m[32m):[m
+[32m+[m[32m    # Minimal stub: ignore credentials and always return a dev token.[m
+[32m+[m[32m    # You can later wire this into the real users table.[m
+[32m+[m[32m    return Token(access_token="dev-token")[m
+[1mdiff --git a/backend/app/routes/health.py b/backend/app/routes/health.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..84ff69f[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/routes/health.py[m
+[36m@@ -0,0 +1,7 @@[m
+[32m+[m[32mfrom fastapi import APIRouter[m
+[32m+[m
+[32m+[m[32mrouter = APIRouter()[m
+[32m+[m
+[32m+[m[32m@router.get("/api/health")[m
+[32m+[m[32masync def health():[m
+[32m+[m[32m    return {"status": "ok"}[m
+[1mdiff --git a/backend/app/routes/history.py b/backend/app/routes/history.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..0d79b20[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/routes/history.py[m
+[36m@@ -0,0 +1,42 @@[m
+[32m+[m[32mfrom typing import List[m
+[32m+[m
+[32m+[m[32mfrom fastapi import APIRouter, Depends, Query[m
+[32m+[m[32mfrom sqlalchemy.orm import Session[m
+[32m+[m
+[32m+[m[32mfrom app.deps import get_db[m
+[32m+[m[32mfrom app.db import models[m
+[32m+[m
+[32m+[m[32mrouter = APIRouter(tags=["history"])[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.get("/history")[m
+[32m+[m[32mdef get_history([m
+[32m+[m[32m    db: Session = Depends(get_db),[m
+[32m+[m[32m    limit: int = Query(50, ge=1, le=200),[m
+[32m+[m[32m    offset: int = Query(0, ge=0),[m
+[32m+[m[32m):[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Return inspection history from Postgres, newest first.[m
+[32m+[m[32m    """[m
+[32m+[m[32m    rows: List[models.Inspection] = ([m
+[32m+[m[32m        db.query(models.Inspection)[m
+[32m+[m[32m        .order_by(models.Inspection.created_at.desc())[m
+[32m+[m[32m        .offset(offset)[m
+[32m+[m[32m        .limit(limit)[m
+[32m+[m[32m        .all()[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m[32m    items = [[m
+[32m+[m[32m        {[m
+[32m+[m[32m            "id": r.id,[m
+[32m+[m[32m            "created_at": r.created_at.isoformat() if r.created_at else None,[m
+[32m+[m[32m            "file_name": r.file_name,[m
+[32m+[m[32m            "stain_detected": r.stain_detected,[m
+[32m+[m[32m            "confidence": r.confidence,[m
+[32m+[m[32m            "material_type": r.material_type,[m
+[32m+[m[32m            "status": r.status,[m
+[32m+[m[32m        }[m
+[32m+[m[32m        for r in rows[m
+[32m+[m[32m    ][m
+[32m+[m
+[32m+[m[32m    return {"items": items}[m
+[1mdiff --git a/backend/app/routes/inspect.py b/backend/app/routes/inspect.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..ad1a621[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/routes/inspect.py[m
+[36m@@ -0,0 +1,56 @@[m
+[32m+[m[32mfrom fastapi import APIRouter, Depends, File, UploadFile[m
+[32m+[m[32mfrom sqlalchemy.orm import Session[m
+[32m+[m
+[32m+[m[32mfrom app.deps import get_db[m
+[32m+[m[32mfrom app.db import models[m
+[32m+[m
+[32m+[m[32mrouter = APIRouter(tags=["inspect"])[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.post("/inspect")[m
+[32m+[m[32masync def inspect_image([m
+[32m+[m[32m    file: UploadFile = File(...),[m
+[32m+[m[32m    db: Session = Depends(get_db),[m
+[32m+[m[32m):[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Stub inspection endpoint:[m
+[32m+[m
+[32m+[m[32m    - accepts an uploaded image[m
+[32m+[m[32m    - runs a *fake* model (hard-coded values for now)[m
+[32m+[m[32m    - writes a row into Postgres[m
+[32m+[m[32m    - returns the saved record[m
+[32m+[m[32m    """[m
+[32m+[m
+[32m+[m[32m    # Read the file to ensure it's actually uploaded (even though we don't use pixels yet)[m
+[32m+[m[32m    contents = await file.read()[m
+[32m+[m[32m    if not contents:[m
+[32m+[m[32m        # FastAPI will turn this into a 400[m
+[32m+[m[32m        raise ValueError("Empty file uploaded")[m
+[32m+[m
+[32m+[m[32m    # ---- STUB MODEL OUTPUT ----[m
+[32m+[m[32m    # You can plug real model predictions here later.[m
+[32m+[m[32m    stain_detected = True[m
+[32m+[m[32m    confidence = 0.92[m
+[32m+[m[32m    material_type = "unknown"  # e.g., "rigid_scope", "lumen", etc.[m
+[32m+[m[32m    status = "completed"[m
+[32m+[m
+[32m+[m[32m    row = models.Inspection([m
+[32m+[m[32m        file_name=file.filename or "uploaded-image",[m
+[32m+[m[32m        stain_detected=stain_detected,[m
+[32m+[m[32m        confidence=confidence,[m
+[32m+[m[32m        material_type=material_type,[m
+[32m+[m[32m        status=status,[m
+[32m+[m[32m    )[m
+[32m+[m[32m    db.add(row)[m
+[32m+[m[32m    db.commit()[m
+[32m+[m[32m    db.refresh(row)[m
+[32m+[m
+[32m+[m[32m    return {[m
+[32m+[m[32m        "id": row.id,[m
+[32m+[m[32m        "created_at": row.created_at.isoformat() if row.created_at else None,[m
+[32m+[m[32m        "file_name": row.file_name,[m
+[32m+[m[32m        "stain_detected": row.stain_detected,[m
+[32m+[m[32m        "confidence": row.confidence,[m
+[32m+[m[32m        "material_type": row.material_type,[m
+[32m+[m[32m        "status": row.status,[m
+[32m+[m[32m    }[m
+[1mdiff --git a/backend/app/routes/reports.py b/backend/app/routes/reports.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..7a872f3[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/routes/reports.py[m
+[36m@@ -0,0 +1,61 @@[m
+[32m+[m[32mfrom fastapi import APIRouter, Depends, HTTPException[m
+[32m+[m[32mfrom fastapi.responses import StreamingResponse[m
+[32m+[m[32mfrom sqlalchemy.orm import Session[m
+[32m+[m
+[32m+[m[32mfrom app.deps import get_db[m
+[32m+[m[32mfrom app.db import models[m
+[32m+[m
+[32m+[m[32mimport io[m
+[32m+[m[32mfrom reportlab.lib.pagesizes import A4[m
+[32m+[m[32mfrom reportlab.pdfgen import canvas[m
+[32m+[m
+[32m+[m[32mrouter = APIRouter(tags=["reports"])[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.get("/reports/{inspection_id}.pdf")[m
+[32m+[m[32mdef get_report([m
+[32m+[m[32m    inspection_id: int,[m
+[32m+[m[32m    db: Session = Depends(get_db),[m
+[32m+[m[32m):[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Generate a simple PDF report for a given inspection, backed by Postgres.[m
+[32m+[m[32m    """[m
+[32m+[m[32m    inspection = ([m
+[32m+[m[32m        db.query(models.Inspection)[m
+[32m+[m[32m        .filter(models.Inspection.id == inspection_id)[m
+[32m+[m[32m        .first()[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m[32m    if not inspection:[m
+[32m+[m[32m        raise HTTPException(status_code=404, detail="Inspection not found")[m
+[32m+[m
+[32m+[m[32m    buf = io.BytesIO()[m
+[32m+[m[32m    c = canvas.Canvas(buf, pagesize=A4)[m
+[32m+[m
+[32m+[m[32m    y = 800[m
+[32m+[m[32m    c.setFont("Helvetica-Bold", 16)[m
+[32m+[m[32m    c.drawString(72, y, f"LumenAI Inspection Report #{inspection.id}")[m
+[32m+[m[32m    y -= 40[m
+[32m+[m
+[32m+[m[32m    c.setFont("Helvetica", 11)[m
+[32m+[m[32m    lines = [[m
+[32m+[m[32m        f"Created at: {inspection.created_at}",[m
+[32m+[m[32m        f"File name: {inspection.file_name}",[m
+[32m+[m[32m        f"Stain detected: {inspection.stain_detected}",[m
+[32m+[m[32m        f"Confidence: {inspection.confidence:.2f}",[m
+[32m+[m[32m        f"Material type: {inspection.material_type}",[m
+[32m+[m[32m        f"Status: {inspection.status}",[m
+[32m+[m[32m    ][m
+[32m+[m
+[32m+[m[32m    for line in lines:[m
+[32m+[m[32m        c.drawString(72, y, line)[m
+[32m+[m[32m        y -= 20[m
+[32m+[m
+[32m+[m[32m    c.showPage()[m
+[32m+[m[32m    c.save()[m
+[32m+[m[32m    buf.seek(0)[m
+[32m+[m
+[32m+[m[32m    headers = {[m
+[32m+[m[32m        "Content-Disposition": f'inline; filename="inspection-{inspection.id}.pdf"'[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return StreamingResponse(buf, media_type="application/pdf", headers=headers)[m
+[1mdiff --git a/backend/app/routes/reviews.py b/backend/app/routes/reviews.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..fc127b3[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/routes/reviews.py[m
+[36m@@ -0,0 +1,8 @@[m
+[32m+[m[32mfrom fastapi import APIRouter[m
+[32m+[m
+[32m+[m[32mrouter = APIRouter()[m
+[32m+[m
+[32m+[m[32m@router.get("/api/reviews/queue")[m
+[32m+[m[32masync def reviews_queue():[m
+[32m+[m[32m    # Minimal stub: empty queue[m
+[32m+[m[32m    return {"items": []}[m
+[1mdiff --git a/backend/app/routes/system.py b/backend/app/routes/system.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..e211beb[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/routes/system.py[m
+[36m@@ -0,0 +1,38 @@[m
+[32m+[m[32mfrom fastapi import APIRouter, Depends[m
+[32m+[m[32mfrom fastapi.security import OAuth2PasswordRequestForm[m
+[32m+[m
+[32m+[m[32mrouter = APIRouter(tags=["system"])[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.get("/health")[m
+[32m+[m[32masync def health():[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Simple healthcheck for edge / k8s / docker.[m
+[32m+[m[32m    """[m
+[32m+[m[32m    return {"status": "ok"}[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.post("/auth/login")[m
+[32m+[m[32masync def login(form_data: OAuth2PasswordRequestForm = Depends()):[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Stub login that always returns a dev token.[m
+[32m+[m
+[32m+[m[32m    Frontend (and curl) expect /api/auth/login to exist and return[m
+[32m+[m[32m    an access_token + token_type.[m
+[32m+[m[32m    """[m
+[32m+[m[32m    # You *could* validate form_data.username/password here later.[m
+[32m+[m[32m    return {[m
+[32m+[m[32m        "access_token": "dev-token",[m
+[32m+[m[32m        "token_type": "bearer",[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.get("/reviews/queue")[m
+[32m+[m[32masync def reviews_queue():[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Stubbed queue endpoint for pending inspections.[m
+[32m+[m
+[32m+[m[32m    Later we can wire this into the inspections table (or a dedicated[m
+[32m+[m[32m    review queue table). For now it just returns an empty list.[m
+[32m+[m[32m    """[m
+[32m+[m[32m    return {"items": []}[m
+[1mdiff --git a/backend/app/schemas/auth.py b/backend/app/schemas/auth.py[m
+[1mindex 28e3f42..f33cb92 100644[m
+[1m--- a/backend/app/schemas/auth.py[m
+[1m+++ b/backend/app/schemas/auth.py[m
+[36m@@ -1,4 +1,4 @@[m
+[31m-from pydantic import BaseModel[m
+[31m-class Token(BaseModel):[m
+[31m-    access_token: str[m
+[31m-    token_type: str = "bearer"[m
+[32m+[m[32mfrom pydantic import BaseModel[m[41m[m
+[32m+[m[32mclass Token(BaseModel):[m[41m[m
+[32m+[m[32m    access_token: str[m[41m[m
+[32m+[m[32m    token_type: str = "bearer"[m[41m[m
+[1mdiff --git a/backend/app/schemas/review.py b/backend/app/schemas/review.py[m
+[1mindex bbbab76..baf5183 100644[m
+[1m--- a/backend/app/schemas/review.py[m
+[1m+++ b/backend/app/schemas/review.py[m
+[36m@@ -1,17 +1,17 @@[m
+[31m-from pydantic import BaseModel, HttpUrl[m
+[31m-from typing import Optional, List[m
+[31m-[m
+[31m-class ReviewItemOut(BaseModel):[m
+[31m-    id: int[m
+[31m-    image_url: HttpUrl | str[m
+[31m-    predicted_label: Optional[str] = None[m
+[31m-    confidence: Optional[float] = None[m
+[31m-    class Config: from_attributes = True[m
+[31m-[m
+[31m-class FeedbackIn(BaseModel):[m
+[31m-    item_id: int[m
+[31m-    true_label: str[m
+[31m-[m
+[31m-class ExportRow(BaseModel):[m
+[31m-    image_url: str[m
+[31m-    label: str[m
+[32m+[m[32mfrom pydantic import BaseModel, HttpUrl[m[41m[m
+[32m+[m[32mfrom typing import Optional, List[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mclass ReviewItemOut(BaseModel):[m[41m[m
+[32m+[m[32m    id: int[m[41m[m
+[32m+[m[32m    image_url: HttpUrl | str[m[41m[m
+[32m+[m[32m    predicted_label: Optional[str] = None[m[41m[m
+[32m+[m[32m    confidence: Optional[float] = None[m[41m[m
+[32m+[m[32m    class Config: from_attributes = True[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mclass FeedbackIn(BaseModel):[m[41m[m
+[32m+[m[32m    item_id: int[m[41m[m
+[32m+[m[32m    true_label: str[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mclass ExportRow(BaseModel):[m[41m[m
+[32m+[m[32m    image_url: str[m[41m[m
+[32m+[m[32m    label: str[m[41m[m
+[1mdiff --git a/backend/app/services/report_pdf.py b/backend/app/services/report_pdf.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..08f252f[m
+[1m--- /dev/null[m
+[1m+++ b/backend/app/services/report_pdf.py[m
+[36m@@ -0,0 +1,38 @@[m
+[32m+[m[32mfrom io import BytesIO[m
+[32m+[m[32mfrom reportlab.lib.pagesizes import LETTER[m
+[32m+[m[32mfrom reportlab.pdfgen import canvas[m
+[32m+[m[32mfrom reportlab.lib.units import inch[m
+[32m+[m[32mfrom datetime import datetime[m
+[32m+[m
+[32m+[m[32mdef render_inspection_pdf(doc: dict) -> bytes:[m
+[32m+[m[32m    buf = BytesIO()[m
+[32m+[m[32m    c = canvas.Canvas(buf, pagesize=LETTER)[m
+[32m+[m[32m    width, height = LETTER[m
+[32m+[m
+[32m+[m[32m    c.setFont("Helvetica-Bold", 16)[m
+[32m+[m[32m    c.drawString(1*inch, height - 1*inch, "LumenAI Inspection Report")[m
+[32m+[m
+[32m+[m[32m    c.setFont("Helvetica", 10)[m
+[32m+[m[32m    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")[m
+[32m+[m[32m    c.drawRightString(width - 1*inch, height - 1*inch, f"Generated: {now}")[m
+[32m+[m
+[32m+[m[32m    y = height - 1.5*inch[m
+[32m+[m[32m    c.setFont("Helvetica-Bold", 12); c.drawString(1*inch, y, "Instrument Details"); y -= 0.25*inch[m
+[32m+[m[32m    c.setFont("Helvetica", 11)[m
+[32m+[m[32m    c.drawString(1*inch, y, f"Instrument: {doc.get('instrument_name','')}"); y -= 0.2*inch[m
+[32m+[m[32m    c.drawString(1*inch, y, f"Inspection ID: {doc.get('id','')}"); y -= 0.2*inch[m
+[32m+[m[32m    c.drawString(1*inch, y, f"Timestamp: {doc.get('timestamp','')}"); y -= 0.5*inch[m
+[32m+[m
+[32m+[m[32m    c.setFont("Helvetica-Bold", 12); c.drawString(1*inch, y, "AI Findings"); y -= 0.25*inch[m
+[32m+[m[32m    res = doc.get("results", {}) or {}[m
+[32m+[m[32m    c.setFont("Helvetica", 11)[m
+[32m+[m[32m    c.drawString(1*inch, y, f"Material Type: {res.get('material_type','')}"); y -= 0.2*inch[m
+[32m+[m[32m    c.drawString(1*inch, y, f"Stain Detected: {'Yes' if res.get('stain_detected') else 'No'}"); y -= 0.2*inch[m
+[32m+[m[32m    c.drawString(1*inch, y, f"Confidence: {res.get('confidence','')}"); y -= 0.5*inch[m
+[32m+[m
+[32m+[m[32m    c.setFont("Helvetica-Oblique", 9)[m
+[32m+[m[32m    c.drawString(1*inch, 0.75*inch, "© LumenAI — Automated Lumen Inspection • For clinical QA reference only")[m
+[32m+[m
+[32m+[m[32m    c.showPage(); c.save()[m
+[32m+[m[32m    pdf = buf.getvalue(); buf.close()[m
+[32m+[m[32m    return pdf[m
+[1mdiff --git a/backend/app/services/security.py b/backend/app/services/security.py[m
+[1mindex 31a66a3..ab41506 100644[m
+[1m--- a/backend/app/services/security.py[m
+[1m+++ b/backend/app/services/security.py[m
+[36m@@ -1,16 +1,16 @@[m
+[31m-from datetime import datetime, timedelta, timezone[m
+[31m-from passlib.hash import pbkdf2_sha256 as pwdhash  # <-- use PBKDF2-SHA256[m
+[31m-import jwt[m
+[31m-from backend.app.core.config import settings[m
+[31m-[m
+[31m-ALGO = "HS256"[m
+[31m-[m
+[31m-def hash_password(p: str) -> str:[m
+[31m-    return pwdhash.hash(p)[m
+[31m-[m
+[31m-def verify_password(p: str, hashed: str) -> bool:[m
+[31m-    return pwdhash.verify(p, hashed)[m
+[31m-[m
+[31m-def make_token(sub: str) -> str:[m
+[31m-    exp = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)[m
+[31m-    return jwt.encode({"sub": sub, "exp": exp}, settings.SECRET_KEY, algorithm=ALGO)[m
+[32m+[m[32mfrom datetime import datetime, timedelta, timezone[m[41m[m
+[32m+[m[32mfrom passlib.hash import pbkdf2_sha256 as pwdhash  # <-- use PBKDF2-SHA256[m[41m[m
+[32m+[m[32mimport jwt[m[41m[m
+[32m+[m[32mfrom backend.app.core.config import settings[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mALGO = "HS256"[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mdef hash_password(p: str) -> str:[m[41m[m
+[32m+[m[32m    return pwdhash.hash(p)[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mdef verify_password(p: str, hashed: str) -> bool:[m[41m[m
+[32m+[m[32m    return pwdhash.verify(p, hashed)[m[41m[m
+[32m+[m[41m[m
+[32m+[m[32mdef make_token(sub: str) -> str:[m[41m[m
+[32m+[m[32m    exp = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)[m[41m[m
+[32m+[m[32m    return jwt.encode({"sub": sub, "exp": exp}, settings.SECRET_KEY, algorithm=ALGO)[m[41m[m
+[1mdiff --git a/backend/johnnychris77 b/backend/johnnychris77[m
+[1mnew file mode 100644[m
+[1mindex 0000000..55226a6[m
+[1m--- /dev/null[m
+[1m+++ b/backend/johnnychris77[m
+[36m@@ -0,0 +1,7 @@[m
+[32m+[m[32m-----BEGIN OPENSSH PRIVATE KEY-----[m
+[32m+[m[32mb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW[m
+[32m+[m[32mQyNTUxOQAAACCilbe5zjcDjOYDmm8nAGH5cIi94+Tlbp34jJU5UIa6oAAAAJBXFTvaVxU7[m
+[32m+[m[32m2gAAAAtzc2gtZWQyNTUxOQAAACCilbe5zjcDjOYDmm8nAGH5cIi94+Tlbp34jJU5UIa6oA[m
+[32m+[m[32mAAAEC6DHT/OGD3tO+kwz0qZy31iE8lE4S4/ifmbD4lDJL6xKKVt7nONwOM5gOabycAYflw[m
+[32m+[m[32miL3j5OVunfiMlTlQhrqgAAAADWpvaG5ueWNocmlzNzc=[m
+[32m+[m[32m-----END OPENSSH PRIVATE KEY-----[m
+[1mdiff --git a/backend/johnnychris77.pub b/backend/johnnychris77.pub[m
+[1mnew file mode 100644[m
+[1mindex 0000000..b44f049[m
+[1m--- /dev/null[m
+[1m+++ b/backend/johnnychris77.pub[m
+[36m@@ -0,0 +1 @@[m
+[32m+[m[32mssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKKVt7nONwOM5gOabycAYflwiL3j5OVunfiMlTlQhrqg johnnychris77[m
+[1mdiff --git a/backend/run_api.sh b/backend/run_api.sh[m
+[1mnew file mode 100644[m
+[1mindex 0000000..a787b7a[m
+[1m--- /dev/null[m
+[1m+++ b/backend/run_api.sh[m
+[36m@@ -0,0 +1,5 @@[m
+[32m+[m[32m#!/usr/bin/env bash[m
+[32m+[m[32mset -euo pipefail[m
+[32m+[m[32mcd "$(dirname "$0")"[m
+[32m+[m[32mexport PYTHONPATH=.[m
+[32m+[m[32mexec /mnt/c/Users/Johna/lumen-ai/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload[m
