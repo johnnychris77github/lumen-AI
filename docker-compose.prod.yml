@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:15-alpine
-    restart: "no"
+    restart: unless-stopped
     environment:
       POSTGRES_USER: lumenai
       POSTGRES_PASSWORD: lumenai

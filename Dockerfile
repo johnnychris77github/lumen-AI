@@ -1,18 +1,20 @@
 FROM python:3.11-slim
 
-# System deps (psycopg2, pillow, etc. if needed)
+ARG BUILD_DATE
+ENV BUILD_DATE=$BUILD_DATE
+
+# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Python deps
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy all project files including backend
+COPY . /app
 
-# App source - explicitly copy backend
-COPY backend /app/backend
+# Install Python deps
+RUN pip install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app:/app/backend
 
