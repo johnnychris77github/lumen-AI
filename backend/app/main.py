@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import time
 
+from app.core.rate_limit import RateLimitMiddleware
 from app.core.settings import settings
 from app.routes.system import router as system_router
 from app.routes.inspect import router as inspect_router
@@ -27,6 +28,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(RateLimitMiddleware)
 
 
 def wait_for_db(max_attempts: int = 30, sleep_seconds: int = 2) -> None:
