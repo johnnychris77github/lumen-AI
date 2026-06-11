@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from openpyxl import Workbook
 
 from app.deps import get_db
 from app.db import models
+from app.audit import log_audit_event
 from app.notifications.notifier import dispatch_alert
 from app.authz import require_roles
 
@@ -223,6 +224,7 @@ def alerts_open(
 def acknowledge_alert(
     inspection_id: int,
     payload: AlertActionPayload,
+    request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
@@ -243,6 +245,20 @@ def acknowledge_alert(
     db.commit()
     db.refresh(row)
 
+    log_audit_event(
+        db,
+        tenant_id=row.tenant_id,
+        tenant_name=row.tenant_name,
+        actor_email=getattr(current_user, "email", "unknown"),
+        actor_role=getattr(current_user, "role", "unknown"),
+        action_type="alert_acknowledge",
+        resource_type="inspection_alert",
+        resource_id=row.id,
+        request=request,
+        details=alert_response(row),
+        compliance_flag=True,
+    )
+
     return {"item": alert_response(row)}
 
 
@@ -250,6 +266,7 @@ def acknowledge_alert(
 def resolve_alert(
     inspection_id: int,
     payload: AlertActionPayload,
+    request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
@@ -271,6 +288,20 @@ def resolve_alert(
     db.add(row)
     db.commit()
     db.refresh(row)
+
+    log_audit_event(
+        db,
+        tenant_id=row.tenant_id,
+        tenant_name=row.tenant_name,
+        actor_email=getattr(current_user, "email", "unknown"),
+        actor_role=getattr(current_user, "role", "unknown"),
+        action_type="alert_resolve",
+        resource_type="inspection_alert",
+        resource_id=row.id,
+        request=request,
+        details=alert_response(row),
+        compliance_flag=True,
+    )
 
     return {"item": alert_response(row)}
 
