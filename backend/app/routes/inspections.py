@@ -42,11 +42,29 @@ def inspection_response(row: models.Inspection) -> dict:
     }
 
 
-def _can_read_inspection(row: models.Inspection, current_user: Any) -> bool:
+def _can_read_inspection(
+    db: Session,
+    row: models.Inspection,
+    current_user: Any,
+) -> bool:
     role = _user_value(current_user, "role")
     if role in ADMIN_ROLES:
         return True
-    return row.tenant_id == _user_value(current_user, "tenant_id")
+
+    user_email = _user_value(current_user, "email")
+    if not user_email:
+        return False
+
+    membership = (
+        db.query(models.TenantMembership)
+        .filter(
+            models.TenantMembership.user_email == user_email,
+            models.TenantMembership.tenant_id == row.tenant_id,
+            models.TenantMembership.is_enabled.is_(True),
+        )
+        .first()
+    )
+    return membership is not None
 
 
 @router.get("/inspections/{inspection_id}")
@@ -66,7 +84,7 @@ def get_inspection(
             detail="Inspection not found",
         )
 
-    if not _can_read_inspection(row, current_user):
+    if not _can_read_inspection(db, row, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",

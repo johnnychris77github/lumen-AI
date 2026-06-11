@@ -26,9 +26,11 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def make_client(current_user):
+def make_client(current_user, memberships=None):
+    models.TenantMembership.__table__.drop(bind=engine, checkfirst=True)
     models.Inspection.__table__.drop(bind=engine, checkfirst=True)
     models.Inspection.__table__.create(bind=engine)
+    models.TenantMembership.__table__.create(bind=engine)
 
     db = TestingSessionLocal()
     row = models.Inspection(
@@ -42,6 +44,16 @@ def make_client(current_user):
         site_name="Site One",
     )
     db.add(row)
+    for membership in memberships or []:
+        db.add(
+            models.TenantMembership(
+                user_email=membership["user_email"],
+                tenant_id=membership["tenant_id"],
+                tenant_name=membership.get("tenant_name", membership["tenant_id"]),
+                role_name=membership.get("role_name", "viewer"),
+                is_enabled=membership.get("is_enabled", True),
+            )
+        )
     db.commit()
     db.refresh(row)
     inspection_id = row.id
@@ -63,12 +75,25 @@ def make_client(current_user):
     return TestClient(app), inspection_id
 
 
-def user(role: str, tenant_id: str | None = None):
-    return SimpleNamespace(role=role, tenant_id=tenant_id, email=f"{role}@example.test")
+def user(role: str, email: str = "user@example.test", tenant_id: str | None = None):
+    return SimpleNamespace(role=role, tenant_id=tenant_id, email=email)
 
 
-def test_admin_can_read_inspection():
-    client, inspection_id = make_client(user("admin", "other-tenant"))
+def membership(
+    user_email: str = "user@example.test",
+    tenant_id: str = "tenant-a",
+    is_enabled: bool = True,
+):
+    return {
+        "user_email": user_email,
+        "tenant_id": tenant_id,
+        "tenant_name": f"{tenant_id} name",
+        "is_enabled": is_enabled,
+    }
+
+
+def test_global_admin_can_read_any_inspection():
+    client, inspection_id = make_client(user("admin", tenant_id="other-tenant"))
 
     response = client.get(f"/inspections/{inspection_id}")
 
@@ -77,8 +102,12 @@ def test_admin_can_read_inspection():
     assert response.json()["tenant_id"] == "tenant-a"
 
 
-def test_matching_tenant_user_can_read_inspection():
-    client, inspection_id = make_client(user("viewer", "tenant-a"))
+def test_user_with_enabled_matching_tenant_membership_can_read_inspection():
+    current_user = user("viewer", email="member@example.test")
+    client, inspection_id = make_client(
+        current_user,
+        memberships=[membership(user_email=current_user.email, tenant_id="tenant-a")],
+    )
 
     response = client.get(f"/inspections/{inspection_id}")
 
@@ -86,8 +115,38 @@ def test_matching_tenant_user_can_read_inspection():
     assert response.json()["file_name"] == "scope-test.jpg"
 
 
-def test_different_tenant_user_receives_403():
-    client, inspection_id = make_client(user("viewer", "tenant-b"))
+def test_user_with_different_tenant_membership_receives_403():
+    current_user = user("viewer", email="member@example.test", tenant_id="tenant-a")
+    client, inspection_id = make_client(
+        current_user,
+        memberships=[membership(user_email=current_user.email, tenant_id="tenant-b")],
+    )
+
+    response = client.get(f"/inspections/{inspection_id}")
+
+    assert response.status_code == 403
+
+
+def test_user_with_disabled_matching_tenant_membership_receives_403():
+    current_user = user("viewer", email="member@example.test", tenant_id="tenant-a")
+    client, inspection_id = make_client(
+        current_user,
+        memberships=[
+            membership(
+                user_email=current_user.email,
+                tenant_id="tenant-a",
+                is_enabled=False,
+            )
+        ],
+    )
+
+    response = client.get(f"/inspections/{inspection_id}")
+
+    assert response.status_code == 403
+
+
+def test_user_with_no_tenant_membership_receives_403():
+    client, inspection_id = make_client(user("viewer", tenant_id="tenant-a"))
 
     response = client.get(f"/inspections/{inspection_id}")
 
