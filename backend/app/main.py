@@ -4,6 +4,10 @@ from sqlalchemy import text
 import time
 
 from app.core.settings import settings
+from app.core.secrets import validate_required_secrets
+
+validate_required_secrets(settings)
+
 from app.routes.system import router as system_router
 from app.routes.inspect import router as inspect_router
 from app.routes.history import router as history_router
