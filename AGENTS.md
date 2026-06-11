@@ -1,9 +1,18 @@
 # AGENTS.md
 
-You are working on **LumenAI**, an enterprise-ready sterile processing, infection prevention, vendor quality, CAPA, and audit-readiness intelligence platform.
+You are working on LumenAI, an enterprise-ready SPD/IP/vendor quality, CAPA, and audit-readiness platform.
 
-This repository is the source of truth for engineering state, security hardening, enterprise-readiness evidence, and release locks.
+Always read these files before starting work:
 
-## Primary Mission
+- CURRENT_STATE.md
+- SECURITY_HARDENING_BACKLOG.md
+- README.md
 
-Keep LumenAI organized as a single repo-driven engineering project. Do not rely on chat memory as the only source of truth. Before starting work, read:
+Current top priority: backend and frontend security hardening.
+
+Security rules:
+
+- Enforce tenant, vendor, facility, role, and actor boundaries.
+- Add tests for every security-sensitive change.
+- Never rely only on frontend hiding for authorization.
+- Do not remove audit
