@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import time
 
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.settings import settings
 from app.routes.system import router as system_router
 from app.routes.inspect import router as inspect_router
@@ -26,6 +27,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    hsts_enabled=settings.SECURITY_HEADERS_HSTS_ENABLED,
 )
 
 
