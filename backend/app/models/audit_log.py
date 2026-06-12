@@ -23,6 +23,8 @@ class AuditLog(Base):
     client_ip: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     details: Mapped[str] = mapped_column(String(4000), default="", nullable=False)
     compliance_flag: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    previous_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    record_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
