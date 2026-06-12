@@ -49,5 +49,6 @@ from app.models.scheduled_account_review import ScheduledAccountReview
 from app.models.account_review_delivery import AccountReviewDelivery
 from app.models.portfolio_briefing import PortfolioBriefing
 from app.models.alert_event import AlertEvent
+from app.models.audit_chain_anchor import AuditChainAnchor
 
-__all__ = ["Inspection", "User", "Review", "AlertEvent"]
+__all__ = ["Inspection", "User", "Review", "AlertEvent", "AuditChainAnchor"]
