@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from io import StringIO, BytesIO
+from typing import Any
 import csv
 import json
 import zipfile
@@ -16,6 +17,36 @@ from app.deps import get_db
 from app.db import models
 
 router = APIRouter(tags=["site-analytics"])
+
+
+GLOBAL_ADMIN_ROLES = {"admin", "super_admin", "security_admin"}
+
+
+def _user_value(current_user: Any, key: str) -> Any:
+    if isinstance(current_user, dict):
+        return current_user.get(key)
+    return getattr(current_user, key, None)
+
+
+def _user_email(current_user: Any) -> str:
+    return str(_user_value(current_user, "email") or _user_value(current_user, "user_email") or _user_value(current_user, "username") or "").strip().lower()
+
+
+def _is_global_admin(current_user: Any) -> bool:
+    return str(_user_value(current_user, "role") or _user_value(current_user, "role_name") or "") in GLOBAL_ADMIN_ROLES
+
+
+def _scoped_inspection_rows(db: Session, current_user: Any):
+    q = db.query(models.Inspection)
+    if _is_global_admin(current_user):
+        return q.order_by(models.Inspection.id.desc()).all()
+    email = _user_email(current_user)
+    return (
+        q.join(models.TenantMembership, models.TenantMembership.tenant_id == models.Inspection.tenant_id)
+        .filter(models.TenantMembership.user_email == email, models.TenantMembership.is_enabled.is_(True))
+        .order_by(models.Inspection.id.desc())
+        .all()
+    )
 
 
 def _site_metrics(rows: list[models.Inspection]):
@@ -177,7 +208,7 @@ def site_analytics_summary(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     site_items = _site_metrics(rows)
     summary = _enterprise_summary(site_items)
     return JSONResponse({"enterprise_summary": summary, "sites": site_items})
@@ -188,7 +219,7 @@ def site_analytics_export_json(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     site_items = _site_metrics(rows)
     summary = _enterprise_summary(site_items)
     return JSONResponse({"enterprise_summary": summary, "sites": site_items})
@@ -199,7 +230,7 @@ def site_analytics_export_csv(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     site_items = _site_metrics(rows)
     text = _csv_text(site_items)
     return StreamingResponse(
@@ -214,7 +245,7 @@ def site_analytics_export_xlsx(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     site_items = _site_metrics(rows)
     summary = _enterprise_summary(site_items)
     content = _xlsx_bytes(summary, site_items)
@@ -230,7 +261,7 @@ def site_analytics_export_bundle(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     site_items = _site_metrics(rows)
     summary = _enterprise_summary(site_items)
 

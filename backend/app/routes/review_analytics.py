@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import StringIO, BytesIO
+from typing import Any
 import csv
 import json
 import zipfile
@@ -15,6 +16,36 @@ from app.deps import get_db
 from app.db import models
 
 router = APIRouter(tags=["review-analytics"])
+
+
+GLOBAL_ADMIN_ROLES = {"admin", "super_admin", "security_admin"}
+
+
+def _user_value(current_user: Any, key: str) -> Any:
+    if isinstance(current_user, dict):
+        return current_user.get(key)
+    return getattr(current_user, key, None)
+
+
+def _user_email(current_user: Any) -> str:
+    return str(_user_value(current_user, "email") or _user_value(current_user, "user_email") or _user_value(current_user, "username") or "").strip().lower()
+
+
+def _is_global_admin(current_user: Any) -> bool:
+    return str(_user_value(current_user, "role") or _user_value(current_user, "role_name") or "") in GLOBAL_ADMIN_ROLES
+
+
+def _scoped_inspection_rows(db: Session, current_user: Any):
+    q = db.query(models.Inspection)
+    if _is_global_admin(current_user):
+        return q.order_by(models.Inspection.id.desc()).all()
+    email = _user_email(current_user)
+    return (
+        q.join(models.TenantMembership, models.TenantMembership.tenant_id == models.Inspection.tenant_id)
+        .filter(models.TenantMembership.user_email == email, models.TenantMembership.is_enabled.is_(True))
+        .order_by(models.Inspection.id.desc())
+        .all()
+    )
 
 
 def _inspection_feedback_row(r: models.Inspection) -> dict:
@@ -148,7 +179,7 @@ def review_analytics_summary(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     return JSONResponse(_review_summary(rows))
 
 
@@ -157,7 +188,7 @@ def feedback_dataset_json(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     items = [_inspection_feedback_row(r) for r in rows if (r.qa_review_status or "").lower() in {"approved", "overridden"}]
     return JSONResponse({"items": items})
 
@@ -167,7 +198,7 @@ def feedback_dataset_csv(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     items = [_inspection_feedback_row(r) for r in rows if (r.qa_review_status or "").lower() in {"approved", "overridden"}]
     text = _csv_text(items)
     return StreamingResponse(
@@ -182,7 +213,7 @@ def feedback_dataset_xlsx(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     summary = _review_summary(rows)
     items = [_inspection_feedback_row(r) for r in rows if (r.qa_review_status or "").lower() in {"approved", "overridden"}]
     content = _xlsx_bytes(summary, items)
@@ -198,7 +229,7 @@ def feedback_dataset_bundle(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+    rows = _scoped_inspection_rows(db, current_user)
     summary = _review_summary(rows)
     items = [_inspection_feedback_row(r) for r in rows if (r.qa_review_status or "").lower() in {"approved", "overridden"}]
 

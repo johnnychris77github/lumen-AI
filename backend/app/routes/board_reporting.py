@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO, StringIO
 from datetime import datetime, timedelta, timezone
+from typing import Any
 import csv
 import json
 import zipfile
@@ -17,16 +18,47 @@ from app.db import models
 
 router = APIRouter(tags=["board-reporting"])
 
+GLOBAL_ADMIN_ROLES = {"admin", "super_admin", "security_admin"}
+
+
+def _user_value(current_user: Any, key: str) -> Any:
+    if isinstance(current_user, dict):
+        return current_user.get(key)
+    return getattr(current_user, key, None)
+
+
+def _user_email(current_user: Any) -> str:
+    return str(_user_value(current_user, "email") or _user_value(current_user, "user_email") or _user_value(current_user, "username") or "").strip().lower()
+
+
+def _is_global_admin(current_user: Any) -> bool:
+    return str(_user_value(current_user, "role") or _user_value(current_user, "role_name") or "") in GLOBAL_ADMIN_ROLES
+
+
+def _scoped_inspection_rows(db: Session, current_user: Any):
+    q = db.query(models.Inspection)
+    if _is_global_admin(current_user):
+        return q.order_by(models.Inspection.id.desc()).all()
+    email = _user_email(current_user)
+    return (
+        q.join(models.TenantMembership, models.TenantMembership.tenant_id == models.Inspection.tenant_id)
+        .filter(models.TenantMembership.user_email == email, models.TenantMembership.is_enabled.is_(True))
+        .order_by(models.Inspection.id.desc())
+        .all()
+    )
+
 
 def _within_days(dt: datetime | None, days: int) -> bool:
     if not dt:
         return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
     return dt >= now - timedelta(days=days)
 
 
-def _rows_for_window(db: Session, days: int):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+def _rows_for_window(db: Session, current_user: Any, days: int):
+    rows = _scoped_inspection_rows(db, current_user)
     return [r for r in rows if _within_days(r.created_at, days)]
 
 
@@ -192,7 +224,7 @@ def board_reporting_weekly(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = _rows_for_window(db, days)
+    rows = _rows_for_window(db, current_user, days)
     report = _build_board_report(rows)
     return JSONResponse(report)
 
@@ -203,7 +235,7 @@ def board_reporting_weekly_csv(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = _rows_for_window(db, days)
+    rows = _rows_for_window(db, current_user, days)
     report = _build_board_report(rows)
     text = _csv_text(report["site_benchmark"])
     return StreamingResponse(
@@ -219,7 +251,7 @@ def board_reporting_weekly_xlsx(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = _rows_for_window(db, days)
+    rows = _rows_for_window(db, current_user, days)
     report = _build_board_report(rows)
     content = build_board_report_xlsx_bytes(report)
     return StreamingResponse(
@@ -235,7 +267,7 @@ def board_reporting_weekly_bundle(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = _rows_for_window(db, days)
+    rows = _rows_for_window(db, current_user, days)
     report = _build_board_report(rows)
 
     bio = BytesIO()
