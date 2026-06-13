@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from io import StringIO, BytesIO
 from datetime import datetime, timedelta, timezone
+from typing import Any
 import csv
 import json
 import zipfile
@@ -18,6 +19,35 @@ from app.db import models
 
 router = APIRouter(tags=["executive-digest"])
 
+GLOBAL_ADMIN_ROLES = {"admin", "super_admin", "security_admin"}
+
+
+def _user_value(current_user: Any, key: str) -> Any:
+    if isinstance(current_user, dict):
+        return current_user.get(key)
+    return getattr(current_user, key, None)
+
+
+def _user_email(current_user: Any) -> str:
+    return str(_user_value(current_user, "email") or _user_value(current_user, "user_email") or _user_value(current_user, "username") or "").strip().lower()
+
+
+def _is_global_admin(current_user: Any) -> bool:
+    return str(_user_value(current_user, "role") or _user_value(current_user, "role_name") or "") in GLOBAL_ADMIN_ROLES
+
+
+def _scoped_inspection_rows(db: Session, current_user: Any):
+    q = db.query(models.Inspection)
+    if _is_global_admin(current_user):
+        return q.order_by(models.Inspection.id.desc()).all()
+    email = _user_email(current_user)
+    return (
+        q.join(models.TenantMembership, models.TenantMembership.tenant_id == models.Inspection.tenant_id)
+        .filter(models.TenantMembership.user_email == email, models.TenantMembership.is_enabled.is_(True))
+        .order_by(models.Inspection.id.desc())
+        .all()
+    )
+
 
 def _parse_dt(dt: datetime | None) -> datetime | None:
     return dt
@@ -26,6 +56,8 @@ def _parse_dt(dt: datetime | None) -> datetime | None:
 def _within_days(dt: datetime | None, days: int) -> bool:
     if not dt:
         return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
     return dt >= now - timedelta(days=days)
 
@@ -42,8 +74,8 @@ def _issue_name(row: models.Inspection) -> str:
     return (getattr(row, "detected_issue", None) or "unknown").strip() or "unknown"
 
 
-def _weekly_rows(db: Session, days: int):
-    rows = db.query(models.Inspection).order_by(models.Inspection.id.desc()).all()
+def _weekly_rows(db: Session, current_user: Any, days: int):
+    rows = _scoped_inspection_rows(db, current_user)
     return [r for r in rows if _within_days(_parse_dt(r.created_at), days)]
 
 
@@ -186,7 +218,7 @@ def executive_digest_weekly(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = _weekly_rows(db, days)
+    rows = _weekly_rows(db, current_user, days)
     digest = _build_digest(rows)
     return JSONResponse(digest)
 
@@ -197,7 +229,7 @@ def executive_digest_weekly_csv(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = _weekly_rows(db, days)
+    rows = _weekly_rows(db, current_user, days)
     digest = _build_digest(rows)
     text = _csv_text(digest["site_benchmark"])
     return StreamingResponse(
@@ -213,7 +245,7 @@ def executive_digest_weekly_xlsx(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = _weekly_rows(db, days)
+    rows = _weekly_rows(db, current_user, days)
     digest = _build_digest(rows)
     content = _xlsx_bytes(digest)
     return StreamingResponse(
@@ -229,7 +261,7 @@ def executive_digest_weekly_bundle(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
-    rows = _weekly_rows(db, days)
+    rows = _weekly_rows(db, current_user, days)
     digest = _build_digest(rows)
 
     bio = BytesIO()

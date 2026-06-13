@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from io import StringIO, BytesIO
+from typing import Any
 import csv
 import json
 import zipfile
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
@@ -17,6 +18,50 @@ from app.db import models
 from app.tenant import resolve_tenant
 
 router = APIRouter(tags=["tenant-analytics"])
+
+GLOBAL_ADMIN_ROLES = {"admin", "super_admin", "security_admin"}
+
+
+def _user_value(current_user: Any, key: str) -> Any:
+    if isinstance(current_user, dict):
+        return current_user.get(key)
+    return getattr(current_user, key, None)
+
+
+def _user_email(current_user: Any) -> str:
+    return str(
+        _user_value(current_user, "email")
+        or _user_value(current_user, "user_email")
+        or _user_value(current_user, "username")
+        or ""
+    ).strip().lower()
+
+
+def _is_global_admin(current_user: Any) -> bool:
+    return str(_user_value(current_user, "role") or _user_value(current_user, "role_name") or "") in GLOBAL_ADMIN_ROLES
+
+
+def _has_tenant_access(db: Session, current_user: Any, tenant_id: str) -> bool:
+    if _is_global_admin(current_user):
+        return True
+    email = _user_email(current_user)
+    if not email:
+        return False
+    return (
+        db.query(models.TenantMembership)
+        .filter(
+            models.TenantMembership.user_email == email,
+            models.TenantMembership.tenant_id == tenant_id,
+            models.TenantMembership.is_enabled.is_(True),
+        )
+        .first()
+        is not None
+    )
+
+
+def _require_tenant_access(db: Session, current_user: Any, tenant_id: str) -> None:
+    if not _has_tenant_access(db, current_user, tenant_id):
+        raise HTTPException(status_code=403, detail="Tenant analytics is outside tenant scope")
 
 
 def _tenant_rows(db: Session, tenant_id: str):
@@ -129,6 +174,7 @@ def tenant_analytics_summary(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
+    _require_tenant_access(db, current_user, tenant["tenant_id"])
     rows = _tenant_rows(db, tenant["tenant_id"])
     summary = _build_summary(rows, tenant["tenant_id"], tenant["tenant_name"])
     return JSONResponse(summary)
@@ -140,6 +186,7 @@ def tenant_analytics_export_json(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
+    _require_tenant_access(db, current_user, tenant["tenant_id"])
     rows = _tenant_rows(db, tenant["tenant_id"])
     summary = _build_summary(rows, tenant["tenant_id"], tenant["tenant_name"])
     payload = {
@@ -169,6 +216,7 @@ def tenant_analytics_export_csv(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
+    _require_tenant_access(db, current_user, tenant["tenant_id"])
     rows = _tenant_rows(db, tenant["tenant_id"])
     return StreamingResponse(
         iter([_csv_text(rows)]),
@@ -183,6 +231,7 @@ def tenant_analytics_export_xlsx(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
+    _require_tenant_access(db, current_user, tenant["tenant_id"])
     rows = _tenant_rows(db, tenant["tenant_id"])
     summary = _build_summary(rows, tenant["tenant_id"], tenant["tenant_name"])
     content = _xlsx_bytes(summary, rows)
@@ -199,6 +248,7 @@ def tenant_analytics_export_bundle(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
+    _require_tenant_access(db, current_user, tenant["tenant_id"])
     rows = _tenant_rows(db, tenant["tenant_id"])
     summary = _build_summary(rows, tenant["tenant_id"], tenant["tenant_name"])
     payload = {

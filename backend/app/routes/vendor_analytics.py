@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from sqlalchemy.orm import Session
@@ -14,6 +16,49 @@ from app.reports.vendor_scorecard import generate_vendor_scorecard_pdf
 from app.authz import require_roles
 
 router = APIRouter(tags=["vendor-analytics"])
+
+GLOBAL_ADMIN_ROLES = {"admin", "super_admin", "security_admin"}
+
+
+def _user_value(current_user: Any, key: str) -> Any:
+    if isinstance(current_user, dict):
+        return current_user.get(key)
+    return getattr(current_user, key, None)
+
+
+def _user_email(current_user: Any) -> str:
+    return str(
+        _user_value(current_user, "email")
+        or _user_value(current_user, "user_email")
+        or _user_value(current_user, "username")
+        or ""
+    ).strip().lower()
+
+
+def _is_global_admin(current_user: Any) -> bool:
+    return str(_user_value(current_user, "role") or _user_value(current_user, "role_name") or "") in GLOBAL_ADMIN_ROLES
+
+
+def _scoped_inspection_query(db: Session, current_user: Any):
+    q = db.query(models.Inspection)
+    if _is_global_admin(current_user):
+        return q
+
+    email = _user_email(current_user)
+    return (
+        q.join(
+            models.TenantMembership,
+            models.TenantMembership.tenant_id == models.Inspection.tenant_id,
+        )
+        .filter(
+            models.TenantMembership.user_email == email,
+            models.TenantMembership.is_enabled.is_(True),
+        )
+    )
+
+
+def _scoped_inspection_rows(db: Session, current_user: Any):
+    return _scoped_inspection_query(db, current_user).all()
 
 
 def build_vendor_items(rows):
@@ -154,20 +199,20 @@ def vendor_xlsx_bytes(items):
 
 @router.get("/analytics/vendors")
 def vendor_analytics(db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager", "vendor_user", "viewer"))):
-    rows = db.query(models.Inspection).all()
+    rows = _scoped_inspection_rows(db, current_user)
     return {"items": build_vendor_items(rows)}
 
 
 @router.get("/analytics/vendors/export.json")
 def vendor_analytics_export_json(db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager", "vendor_user"))):
-    rows = db.query(models.Inspection).all()
+    rows = _scoped_inspection_rows(db, current_user)
     items = build_vendor_items(rows)
     return JSONResponse({"items": items})
 
 
 @router.get("/analytics/vendors/export.csv")
 def vendor_analytics_export_csv(db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager", "vendor_user"))):
-    rows = db.query(models.Inspection).all()
+    rows = _scoped_inspection_rows(db, current_user)
     items = build_vendor_items(rows)
     text = vendor_csv_text(items)
     return StreamingResponse(
@@ -179,7 +224,7 @@ def vendor_analytics_export_csv(db: Session = Depends(get_db), current_user=Depe
 
 @router.get("/analytics/vendors/export.xlsx")
 def vendor_analytics_export_xlsx(db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager", "vendor_user"))):
-    rows = db.query(models.Inspection).all()
+    rows = _scoped_inspection_rows(db, current_user)
     items = build_vendor_items(rows)
     content = vendor_xlsx_bytes(items)
     return StreamingResponse(
@@ -191,7 +236,7 @@ def vendor_analytics_export_xlsx(db: Session = Depends(get_db), current_user=Dep
 
 @router.get("/analytics/vendors/export.bundle.zip")
 def vendor_analytics_export_bundle(db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager", "vendor_user"))):
-    rows = db.query(models.Inspection).all()
+    rows = _scoped_inspection_rows(db, current_user)
     items = build_vendor_items(rows)
 
     csv_content = vendor_csv_text(items)
@@ -214,7 +259,7 @@ def vendor_analytics_export_bundle(db: Session = Depends(get_db), current_user=D
 
 @router.get("/analytics/vendors/{vendor_name}/scorecard.json")
 def vendor_scorecard_json(vendor_name: str, db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager", "vendor_user"))):
-    rows = db.query(models.Inspection).all()
+    rows = _scoped_inspection_rows(db, current_user)
     items = build_vendor_items(rows)
     scorecard = find_vendor_scorecard(items, vendor_name)
     if not scorecard:
@@ -224,7 +269,7 @@ def vendor_scorecard_json(vendor_name: str, db: Session = Depends(get_db), curre
 
 @router.get("/analytics/vendors/{vendor_name}/scorecard.pdf")
 def vendor_scorecard_pdf(vendor_name: str, db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager", "vendor_user"))):
-    rows = db.query(models.Inspection).all()
+    rows = _scoped_inspection_rows(db, current_user)
     items = build_vendor_items(rows)
     scorecard = find_vendor_scorecard(items, vendor_name)
     if not scorecard:

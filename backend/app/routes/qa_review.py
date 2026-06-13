@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -11,6 +12,8 @@ from app.deps import get_db
 from app.db import models
 
 router = APIRouter(tags=["qa-review"])
+
+GLOBAL_ADMIN_ROLES = {"admin", "super_admin", "security_admin"}
 
 
 class QAReviewPayload(BaseModel):
@@ -48,13 +51,56 @@ def inspection_response(row: models.Inspection) -> dict:
     }
 
 
+def _user_value(current_user: Any, key: str) -> Any:
+    if isinstance(current_user, dict):
+        return current_user.get(key)
+    return getattr(current_user, key, None)
+
+
+def _user_email(current_user: Any) -> str:
+    return str(_user_value(current_user, "email") or _user_value(current_user, "user_email") or _user_value(current_user, "username") or "").strip().lower()
+
+
+def _is_global_admin(current_user: Any) -> bool:
+    return str(_user_value(current_user, "role") or _user_value(current_user, "role_name") or "") in GLOBAL_ADMIN_ROLES
+
+
+def _has_tenant_access(db: Session, current_user: Any, tenant_id: str) -> bool:
+    if _is_global_admin(current_user):
+        return True
+    email = _user_email(current_user)
+    if not email:
+        return False
+    return (
+        db.query(models.TenantMembership)
+        .filter(
+            models.TenantMembership.user_email == email,
+            models.TenantMembership.tenant_id == tenant_id,
+            models.TenantMembership.is_enabled.is_(True),
+        )
+        .first()
+        is not None
+    )
+
+
+def _scoped_inspection_query(db: Session, current_user: Any):
+    q = db.query(models.Inspection)
+    if _is_global_admin(current_user):
+        return q
+    email = _user_email(current_user)
+    return (
+        q.join(models.TenantMembership, models.TenantMembership.tenant_id == models.Inspection.tenant_id)
+        .filter(models.TenantMembership.user_email == email, models.TenantMembership.is_enabled.is_(True))
+    )
+
+
 @router.get("/qa-review/pending")
 def get_pending_reviews(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
     rows = (
-        db.query(models.Inspection)
+        _scoped_inspection_query(db, current_user)
         .filter(models.Inspection.qa_review_status == "pending")
         .order_by(models.Inspection.id.desc())
         .all()
@@ -76,6 +122,8 @@ def submit_qa_review(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Inspection not found")
+    if not _has_tenant_access(db, current_user, row.tenant_id):
+        raise HTTPException(status_code=403, detail="Inspection is outside tenant scope")
 
     reviewer = payload.reviewer or getattr(current_user, "email", "unknown")
     row.qa_reviewer = reviewer
