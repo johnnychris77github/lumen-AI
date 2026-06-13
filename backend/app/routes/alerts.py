@@ -21,6 +21,11 @@ from app.authz import require_roles
 router = APIRouter(tags=["alerts"])
 
 
+GLOBAL_ALERT_ROLES = {"admin", "super_admin", "security_admin"}
+ALERT_VIEW_ROLES = ("admin", "super_admin", "security_admin", "spd_manager", "vendor_user", "viewer")
+ALERT_MUTATION_ROLES = ("admin", "super_admin", "security_admin", "spd_manager")
+
+
 class AlertActionPayload(BaseModel):
     owner: str = ""
     notes: str = ""
@@ -65,8 +70,80 @@ def alert_event_response(row: models.AlertEvent) -> dict:
     }
 
 
-def fetch_alert_events(db: Session, limit: int | None = None):
-    q = db.query(models.AlertEvent).order_by(models.AlertEvent.id.desc())
+def _user_email(current_user) -> str:
+    return str(
+        getattr(current_user, "email", None)
+        or getattr(current_user, "username", None)
+        or ""
+    ).strip().lower()
+
+
+def _is_global_admin(current_user) -> bool:
+    return getattr(current_user, "role", "") in GLOBAL_ALERT_ROLES
+
+
+def _has_tenant_membership(db: Session, current_user, tenant_id: str) -> bool:
+    email = _user_email(current_user)
+    if not email:
+        return False
+    return (
+        db.query(models.TenantMembership)
+        .filter(
+            models.TenantMembership.user_email == email,
+            models.TenantMembership.tenant_id == tenant_id,
+            models.TenantMembership.is_enabled == True,
+        )
+        .first()
+        is not None
+    )
+
+
+def _authorize_inspection_scope(db: Session, current_user, inspection: models.Inspection) -> None:
+    if _is_global_admin(current_user):
+        return
+    if not _has_tenant_membership(db, current_user, inspection.tenant_id):
+        raise HTTPException(status_code=403, detail="Alert is outside tenant scope")
+
+
+def _scoped_inspection_query(db: Session, current_user):
+    q = db.query(models.Inspection)
+    if _is_global_admin(current_user):
+        return q
+    email = _user_email(current_user)
+    return (
+        q.join(
+            models.TenantMembership,
+            models.TenantMembership.tenant_id == models.Inspection.tenant_id,
+        )
+        .filter(
+            models.TenantMembership.user_email == email,
+            models.TenantMembership.is_enabled == True,
+        )
+    )
+
+
+def _scoped_alert_event_query(db: Session, current_user):
+    q = db.query(models.AlertEvent).join(
+        models.Inspection,
+        models.Inspection.id == models.AlertEvent.inspection_id,
+    )
+    if _is_global_admin(current_user):
+        return q
+    email = _user_email(current_user)
+    return (
+        q.join(
+            models.TenantMembership,
+            models.TenantMembership.tenant_id == models.Inspection.tenant_id,
+        )
+        .filter(
+            models.TenantMembership.user_email == email,
+            models.TenantMembership.is_enabled == True,
+        )
+    )
+
+
+def fetch_alert_events(db: Session, current_user, limit: int | None = None):
+    q = _scoped_alert_event_query(db, current_user).order_by(models.AlertEvent.id.desc())
     if limit:
         q = q.limit(limit)
     return q.all()
@@ -185,9 +262,13 @@ def alert_events_xlsx_bytes(rows):
 
 
 @router.get("/alerts/feed")
-def alerts_feed(limit: int = 20, db: Session = Depends(get_db)):
+def alerts_feed(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles(*ALERT_VIEW_ROLES)),
+):
     rows = (
-        db.query(models.Inspection)
+        _scoped_inspection_query(db, current_user)
         .order_by(models.Inspection.id.desc())
         .limit(limit)
         .all()
@@ -208,10 +289,10 @@ def alerts_feed(limit: int = 20, db: Session = Depends(get_db)):
 @router.get("/alerts/open")
 def alerts_open(
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "spd_manager", "vendor_user", "viewer")),
+    current_user=Depends(require_roles(*ALERT_VIEW_ROLES)),
 ):
     rows = (
-        db.query(models.Inspection)
+        _scoped_inspection_query(db, current_user)
         .filter(models.Inspection.alert_status != "resolved")
         .order_by(models.Inspection.id.desc())
         .all()
@@ -224,7 +305,7 @@ def acknowledge_alert(
     inspection_id: int,
     payload: AlertActionPayload,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "spd_manager")),
+    current_user=Depends(require_roles(*ALERT_MUTATION_ROLES)),
 ):
     row = (
         db.query(models.Inspection)
@@ -233,6 +314,7 @@ def acknowledge_alert(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Inspection not found")
+    _authorize_inspection_scope(db, current_user, row)
 
     row.alert_status = "acknowledged"
     row.alert_owner = payload.owner or getattr(current_user, "email", "unknown")
@@ -251,7 +333,7 @@ def resolve_alert(
     inspection_id: int,
     payload: AlertActionPayload,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "spd_manager")),
+    current_user=Depends(require_roles(*ALERT_MUTATION_ROLES)),
 ):
     row = (
         db.query(models.Inspection)
@@ -260,6 +342,7 @@ def resolve_alert(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Inspection not found")
+    _authorize_inspection_scope(db, current_user, row)
 
     row.alert_status = "resolved"
     row.alert_owner = payload.owner or row.alert_owner or getattr(current_user, "email", "unknown")
@@ -295,7 +378,7 @@ def alerts_status(current_user=Depends(require_roles("admin", "spd_manager"))):
 
 
 @router.post("/alerts/send/{inspection_id}")
-def send_alert_for_inspection(inspection_id: int, db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager"))):
+def send_alert_for_inspection(inspection_id: int, db: Session = Depends(get_db), current_user=Depends(require_roles(*ALERT_MUTATION_ROLES))):
     row = (
         db.query(models.Inspection)
         .filter(models.Inspection.id == inspection_id)
@@ -303,6 +386,7 @@ def send_alert_for_inspection(inspection_id: int, db: Session = Depends(get_db),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Inspection not found")
+    _authorize_inspection_scope(db, current_user, row)
 
     alert = alert_response(row)
     result = dispatch_alert(alert)
@@ -314,7 +398,7 @@ def send_alert_for_inspection(inspection_id: int, db: Session = Depends(get_db),
 
 
 @router.post("/alerts/resend/{alert_event_id}")
-def resend_from_audit_event(alert_event_id: int, db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager"))):
+def resend_from_audit_event(alert_event_id: int, db: Session = Depends(get_db), current_user=Depends(require_roles(*ALERT_MUTATION_ROLES))):
     event = (
         db.query(models.AlertEvent)
         .filter(models.AlertEvent.id == alert_event_id)
@@ -330,6 +414,7 @@ def resend_from_audit_event(alert_event_id: int, db: Session = Depends(get_db), 
     )
     if not inspection:
         raise HTTPException(status_code=404, detail="Inspection not found")
+    _authorize_inspection_scope(db, current_user, inspection)
 
     alert = alert_response(inspection)
     result = dispatch_alert(alert)
@@ -345,21 +430,21 @@ def resend_from_audit_event(alert_event_id: int, db: Session = Depends(get_db), 
 def alerts_history(
     limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "spd_manager")),
+    current_user=Depends(require_roles(*ALERT_VIEW_ROLES)),
 ):
-    rows = fetch_alert_events(db, limit=limit)
+    rows = fetch_alert_events(db, current_user, limit=limit)
     return {"items": [alert_event_response(r) for r in rows]}
 
 
 @router.get("/alerts/history/export.json")
-def alerts_history_export_json(db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager"))):
-    rows = fetch_alert_events(db)
+def alerts_history_export_json(db: Session = Depends(get_db), current_user=Depends(require_roles(*ALERT_MUTATION_ROLES))):
+    rows = fetch_alert_events(db, current_user)
     return JSONResponse({"items": [alert_event_response(r) for r in rows]})
 
 
 @router.get("/alerts/history/export.csv")
-def alerts_history_export_csv(db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager"))):
-    rows = fetch_alert_events(db)
+def alerts_history_export_csv(db: Session = Depends(get_db), current_user=Depends(require_roles(*ALERT_MUTATION_ROLES))):
+    rows = fetch_alert_events(db, current_user)
     text = alert_events_csv_text(rows)
     return StreamingResponse(
         iter([text]),
@@ -369,8 +454,8 @@ def alerts_history_export_csv(db: Session = Depends(get_db), current_user=Depend
 
 
 @router.get("/alerts/history/export.xlsx")
-def alerts_history_export_xlsx(db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager"))):
-    rows = fetch_alert_events(db)
+def alerts_history_export_xlsx(db: Session = Depends(get_db), current_user=Depends(require_roles(*ALERT_MUTATION_ROLES))):
+    rows = fetch_alert_events(db, current_user)
     content = alert_events_xlsx_bytes(rows)
     return StreamingResponse(
         iter([content]),
@@ -380,8 +465,8 @@ def alerts_history_export_xlsx(db: Session = Depends(get_db), current_user=Depen
 
 
 @router.get("/alerts/history/export.bundle.zip")
-def alerts_history_export_bundle(db: Session = Depends(get_db), current_user=Depends(require_roles("admin", "spd_manager"))):
-    rows = fetch_alert_events(db)
+def alerts_history_export_bundle(db: Session = Depends(get_db), current_user=Depends(require_roles(*ALERT_MUTATION_ROLES))):
+    rows = fetch_alert_events(db, current_user)
     json_content = json.dumps({"items": [alert_event_response(r) for r in rows]}, indent=2)
     csv_content = alert_events_csv_text(rows)
     xlsx_content = alert_events_xlsx_bytes(rows)
