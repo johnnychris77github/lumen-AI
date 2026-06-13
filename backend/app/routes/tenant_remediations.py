@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user
+from app.deps import get_current_user
+from app.db import models
 from app.db import session as db_session
 from app.tenant_remediations import (
     create_remediations_from_tenant_insight,
@@ -40,6 +41,8 @@ def get_db():
 
 router = APIRouter(prefix="/tenant-remediations", tags=["tenant-remediations"])
 
+GLOBAL_ADMIN_ROLES = {"admin", "super_admin", "security_admin"}
+
 
 class TenantRemediationCreatePayload(BaseModel):
     tenant_id: int
@@ -64,13 +67,123 @@ class TenantRemediationUpdatePayload(BaseModel):
     risk_source: str | None = None
 
 
+def _user_value(current_user: Any, key: str) -> Any:
+    if isinstance(current_user, dict):
+        return current_user.get(key)
+    return getattr(current_user, key, None)
+
+
+def _user_email(current_user: Any) -> str:
+    return str(
+        _user_value(current_user, "email")
+        or _user_value(current_user, "user_email")
+        or _user_value(current_user, "username")
+        or ""
+    ).strip().lower()
+
+
+def _user_role(current_user: Any) -> str:
+    return str(
+        _user_value(current_user, "role")
+        or _user_value(current_user, "role_name")
+        or ""
+    )
+
+
+def _is_global_admin(current_user: Any) -> bool:
+    return _user_role(current_user) in GLOBAL_ADMIN_ROLES
+
+
+def _authorized_tenant_ids(db: Session, current_user: Any) -> set[str]:
+    if _is_global_admin(current_user):
+        return set()
+
+    email = _user_email(current_user)
+    if not email:
+        return set()
+
+    rows = (
+        db.query(models.TenantMembership)
+        .filter(
+            models.TenantMembership.user_email == email,
+            models.TenantMembership.is_enabled.is_(True),
+        )
+        .all()
+    )
+    return {str(row.tenant_id) for row in rows}
+
+
+def _has_tenant_access(db: Session, current_user: Any, tenant_id: int | str) -> bool:
+    if _is_global_admin(current_user):
+        return True
+
+    email = _user_email(current_user)
+    if not email:
+        return False
+
+    return (
+        db.query(models.TenantMembership)
+        .filter(
+            models.TenantMembership.user_email == email,
+            models.TenantMembership.tenant_id == str(tenant_id),
+            models.TenantMembership.is_enabled.is_(True),
+        )
+        .first()
+        is not None
+    )
+
+
+def _require_tenant_access(db: Session, current_user: Any, tenant_id: int | str) -> None:
+    if not _has_tenant_access(db, current_user, tenant_id):
+        raise HTTPException(status_code=403, detail="Tenant remediation is outside tenant scope")
+
+
+def _filter_remediation_rows(db: Session, current_user: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if _is_global_admin(current_user):
+        return rows
+    allowed = _authorized_tenant_ids(db, current_user)
+    return [row for row in rows if str(row.get("tenant_id")) in allowed]
+
+
+def _remediation_rollup_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def count_status(status: str) -> int:
+        return sum(1 for row in rows if row.get("status") == status)
+
+    from datetime import date
+
+    today = date.today()
+    overdue = 0
+    for row in rows:
+        due_date = row.get("due_date")
+        if not due_date or row.get("status") == "closed":
+            continue
+        try:
+            parsed = due_date if isinstance(due_date, date) else date.fromisoformat(str(due_date))
+            if parsed < today:
+                overdue += 1
+        except Exception:
+            pass
+
+    return {
+        "total": len(rows),
+        "open": count_status("open"),
+        "in_progress": count_status("in_progress"),
+        "blocked": count_status("blocked"),
+        "escalated": count_status("escalated"),
+        "closed": count_status("closed"),
+        "overdue": overdue,
+        "critical_priority": sum(1 for row in rows if row.get("priority") == "critical" and row.get("status") != "closed"),
+        "high_priority": sum(1 for row in rows if row.get("priority") == "high" and row.get("status") != "closed"),
+    }
+
+
 @router.post("")
 def create_remediation(
     payload: TenantRemediationCreatePayload,
-    authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    get_current_user(authorization)
+    _require_tenant_access(db, current_user, payload.tenant_id)
 
     try:
         return create_tenant_remediation(db=db, **payload.model_dump())
@@ -80,47 +193,45 @@ def create_remediation(
 
 @router.get("")
 def list_remediations(
-    authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    get_current_user(authorization)
-    return list_tenant_remediations(db)
+    return _filter_remediation_rows(db, current_user, list_tenant_remediations(db, limit=10000))
 
 
 @router.get("/rollup")
 def get_remediation_rollup(
-    authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    get_current_user(authorization)
+    if not _is_global_admin(current_user):
+        return _remediation_rollup_from_rows(_filter_remediation_rows(db, current_user, list_tenant_remediations(db, limit=10000)))
     return remediation_rollup(db)
 
 
 @router.get("/open")
 def list_open_remediations(
-    authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    get_current_user(authorization)
-    return list_tenant_remediations(db, status="open")
+    return _filter_remediation_rows(db, current_user, list_tenant_remediations(db, status="open", limit=10000))
 
 
 @router.get("/overdue")
 def list_overdue_remediations(
-    authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    get_current_user(authorization)
-    return list_tenant_remediations(db, overdue_only=True)
+    return _filter_remediation_rows(db, current_user, list_tenant_remediations(db, overdue_only=True, limit=10000))
 
 
 @router.post("/from-insight/{tenant_id}")
 def create_from_insight(
     tenant_id: int,
-    authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    get_current_user(authorization)
+    _require_tenant_access(db, current_user, tenant_id)
 
     try:
         return create_remediations_from_tenant_insight(db, tenant_id)
@@ -131,14 +242,13 @@ def create_from_insight(
 @router.get("/{remediation_id}")
 def get_remediation(
     remediation_id: int,
-    authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    get_current_user(authorization)
-
     remediation = get_tenant_remediation(db, remediation_id)
     if not remediation:
         raise HTTPException(status_code=404, detail="Tenant remediation not found")
+    _require_tenant_access(db, current_user, remediation["tenant_id"])
 
     return remediation
 
@@ -147,10 +257,13 @@ def get_remediation(
 def update_remediation(
     remediation_id: int,
     payload: TenantRemediationUpdatePayload,
-    authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    get_current_user(authorization)
+    remediation = get_tenant_remediation(db, remediation_id)
+    if not remediation:
+        raise HTTPException(status_code=404, detail="Tenant remediation not found")
+    _require_tenant_access(db, current_user, remediation["tenant_id"])
 
     updates: dict[str, Any] = {
         key: value
@@ -168,10 +281,13 @@ def update_remediation(
 @router.post("/{remediation_id}/close")
 def close_remediation(
     remediation_id: int,
-    authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    get_current_user(authorization)
+    remediation = get_tenant_remediation(db, remediation_id)
+    if not remediation:
+        raise HTTPException(status_code=404, detail="Tenant remediation not found")
+    _require_tenant_access(db, current_user, remediation["tenant_id"])
 
     remediation = update_tenant_remediation(db, remediation_id, {"status": "closed"})
     if not remediation:
