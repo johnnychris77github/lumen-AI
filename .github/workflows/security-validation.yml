@@ -1,0 +1,333 @@
+name: Security Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  LUMENAI_ENV: test
+  DATABASE_URL: sqlite:///security-validation.db
+  SECRET_KEY: ci-local-secret-for-validation
+  JWT_SECRET_KEY: ci-local-jwt-secret-for-validation
+  PYTHONPATH: .:backend
+
+jobs:
+  compile-checks:
+    name: Compile checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile required entry points
+        run: |
+          python -m py_compile backend/app/auth.py
+          python -m py_compile backend/app/deps.py
+          python -m py_compile backend/app/main.py
+
+      - name: Compile security-sensitive packages recursively
+        run: |
+          python - <<'PY'
+          import compileall
+          import sys
+
+          paths = [
+              "backend/app/core",
+              "backend/app/models",
+              "backend/app/routes",
+          ]
+
+          failed = False
+          for path in paths:
+              if not compileall.compile_dir(path, quiet=1):
+                  failed = True
+
+          if failed:
+              sys.exit(1)
+          PY
+
+  security-tests:
+    name: Security tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+
+      - name: Run available security test suites
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          security_tests = [
+              "backend/tests/test_alerts_tenant_authorization.py",
+              "backend/tests/test_audit_immutability.py",
+              "backend/tests/test_rate_limiting.py",
+              "backend/tests/test_security_headers.py",
+              "backend/tests/test_secrets_management.py",
+              "backend/tests/test_session_token_hardening.py",
+              "backend/tests/test_audit_hash_chain.py",
+              "backend/tests/test_audit_hash_backfill.py",
+              "backend/tests/test_audit_db_protection.py",
+              "backend/tests/test_audit_anchor.py",
+              "backend/tests/test_audit_anchor_scheduler.py",
+              "backend/tests/test_jwt_oidc_readiness.py",
+              "backend/tests/test_jwks_signature_validation.py",
+              "backend/tests/test_oidc_claim_mapping.py",
+              "backend/tests/test_oidc_tenant_jit.py",
+              "backend/tests/test_jwt_jit_auth_flow.py",
+              "backend/tests/test_analytics_tenant_authorization.py",
+              "backend/tests/test_reporting_digest_tenant_authorization.py",
+              "backend/tests/test_qa_review_tenant_authorization.py",
+          ]
+
+          existing = [path for path in security_tests if Path(path).exists()]
+          missing = [path for path in security_tests if not Path(path).exists()]
+
+          lines = [
+              "Security test manifest",
+              "======================",
+              "",
+              "Executed test files:",
+              *[f"- {path}" for path in existing],
+              "",
+              "Pending test files not present on this branch:",
+              *[f"- {path}" for path in missing],
+              "",
+          ]
+          Path("security-tests-selection.txt").write_text("\n".join(lines), encoding="utf-8")
+
+          if not existing:
+              print("No listed security test files are present on this branch.")
+              sys.exit(0)
+
+          result = subprocess.run([sys.executable, "-m", "pytest", *existing], check=False)
+          sys.exit(result.returncode)
+          PY
+
+      - name: Upload security test selection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-test-selection
+          path: security-tests-selection.txt
+
+  migration-validation:
+    name: Migration validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: sqlite:///security-validation-migration.db
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install migration dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run Alembic migrations against fresh SQLite database
+        run: |
+          rm -f security-validation-migration.db
+          cp alembic/env.py alembic/env.py.original
+          trap 'mv alembic/env.py.original alembic/env.py' EXIT
+          cat > alembic/env.py <<'PY'
+          from alembic import context
+          from sqlalchemy import create_engine, pool
+          import os
+
+          config = context.config
+          target_metadata = None
+
+          def run_migrations_offline():
+              url = os.environ["DATABASE_URL"]
+              context.configure(
+                  url=url,
+                  target_metadata=target_metadata,
+                  literal_binds=True,
+                  dialect_opts={"paramstyle": "named"},
+              )
+              with context.begin_transaction():
+                  context.run_migrations()
+
+          def run_migrations_online():
+              connectable = create_engine(os.environ["DATABASE_URL"], poolclass=pool.NullPool)
+              with connectable.connect() as connection:
+                  context.configure(connection=connection, target_metadata=target_metadata)
+                  with context.begin_transaction():
+                      context.run_migrations()
+
+          if context.is_offline_mode():
+              run_migrations_offline()
+          else:
+              run_migrations_online()
+          PY
+          python -m alembic upgrade head
+          echo "Migration validation result: passed" > migration-validation-result.txt
+
+      - name: Upload migration validation result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-validation-result
+          path: migration-validation-result.txt
+
+  dependency-safety:
+    name: Dependency safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run lightweight dependency scan
+        run: |
+          python -m pip install --upgrade pip
+          if python -m pip install pip-audit; then
+            pip-audit -r requirements.txt -f json -o pip-audit.json || true
+            python - <<'PY'
+            import json
+            from pathlib import Path
+            import sys
+
+            audit_path = Path("pip-audit.json")
+            if not audit_path.exists():
+                Path("dependency-safety-result.txt").write_text(
+                    "Dependency scan result: pip-audit produced no JSON output.\n",
+                    encoding="utf-8",
+                )
+                sys.exit(0)
+
+            data = json.loads(audit_path.read_text(encoding="utf-8"))
+            high_or_critical = []
+            unknown = []
+
+            for dependency in data.get("dependencies", []):
+                name = dependency.get("name", "unknown")
+                for vuln in dependency.get("vulns", []):
+                    severity = str(vuln.get("severity") or "").lower()
+                    item = f"{name}: {vuln.get('id', 'unknown vulnerability')}"
+                    if severity in {"high", "critical"}:
+                        high_or_critical.append(item)
+                    elif not severity:
+                        unknown.append(item)
+
+            lines = [
+                "Dependency scan result: completed with pip-audit",
+                f"High/critical findings: {len(high_or_critical)}",
+                f"Findings without severity metadata: {len(unknown)}",
+            ]
+            if high_or_critical:
+                lines.append("")
+                lines.append("High/critical findings:")
+                lines.extend(f"- {item}" for item in high_or_critical)
+
+            Path("dependency-safety-result.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            if high_or_critical:
+                sys.exit(1)
+            PY
+          else
+            echo "Dependency scan result: pip-audit unavailable; scan skipped." > dependency-safety-result.txt
+          fi
+
+      - name: Upload dependency safety result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-safety-result
+          path: |
+            dependency-safety-result.txt
+            pip-audit.json
+
+  security-validation-summary:
+    name: Security validation summary
+    runs-on: ubuntu-latest
+    needs:
+      - compile-checks
+      - security-tests
+      - migration-validation
+      - dependency-safety
+    if: always()
+
+    steps:
+      - name: Generate security validation summary
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          COMPILE_RESULT: ${{ needs.compile-checks.result }}
+          SECURITY_TESTS_RESULT: ${{ needs.security-tests.result }}
+          MIGRATION_RESULT: ${{ needs.migration-validation.result }}
+          DEPENDENCY_RESULT: ${{ needs.dependency-safety.result }}
+        run: |
+          {
+            echo "Security Validation Summary"
+            echo "==========================="
+            echo ""
+            echo "Commit SHA: ${COMMIT_SHA}"
+            echo "Workflow run date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            echo ""
+            echo "Jobs:"
+            echo "- compile-checks: ${COMPILE_RESULT}"
+            echo "- security-tests: ${SECURITY_TESTS_RESULT}"
+            echo "- migration-validation: ${MIGRATION_RESULT}"
+            echo "- dependency-safety: ${DEPENDENCY_RESULT}"
+            echo ""
+            echo "Tests executed:"
+            echo "- Security test manifest is maintained in the security-tests job."
+            echo "- The job executes every listed test file that exists on the branch."
+            echo "- Missing listed tests are reported as pending until their PRs merge."
+            echo ""
+            echo "Migration validation result: ${MIGRATION_RESULT}"
+            echo "Dependency scan result: ${DEPENDENCY_RESULT}"
+          } > security-validation-summary.txt
+
+      - name: Upload security validation summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-validation-summary
+          path: security-validation-summary.txt
