@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastapi import Request
 from sqlalchemy.orm import Session
 
-from app.db import models
+from app.core.audit_logger import append_audit_event
 
 
 def log_audit_event(
@@ -24,22 +23,18 @@ def log_audit_event(
     details: dict[str, Any] | None = None,
     compliance_flag: bool = False,
 ):
-    row = models.AuditLog(
-        tenant_id=tenant_id or "default-tenant",
-        tenant_name=tenant_name or "Default Tenant",
-        actor_email=(actor_email or "").strip().lower(),
-        actor_role=actor_role or "",
-        action_type=action_type,
+    return append_audit_event(
+        db,
+        tenant_id=tenant_id,
+        tenant_name=tenant_name,
+        actor_id=actor_email,
+        actor_name=actor_email,
+        actor_role=actor_role,
+        action=action_type,
         resource_type=resource_type,
         resource_id=str(resource_id or ""),
         status=status,
-        request_method=request.method if request else "",
-        request_path=str(request.url.path) if request else "",
-        client_ip=(request.client.host if request and request.client else ""),
-        details=json.dumps(details or {}, default=str)[:4000],
-        compliance_flag=bool(compliance_flag),
+        request=request,
+        metadata=details,
+        compliance_flag=compliance_flag,
     )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-    return row

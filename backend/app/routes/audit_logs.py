@@ -5,13 +5,14 @@ import csv
 import json
 import zipfile
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
 from app.deps import get_db
 from app.db import models
+from app.audit import log_audit_event
 from app.tenant import resolve_tenant
 from app.tenant_authz import require_tenant_roles
 
@@ -24,10 +25,16 @@ def _response(row: models.AuditLog) -> dict:
         "tenant_id": row.tenant_id,
         "tenant_name": row.tenant_name,
         "actor_email": row.actor_email,
+        "actor_id": row.actor_id,
+        "actor_name": row.actor_name,
         "actor_role": row.actor_role,
+        "action": row.action,
         "action_type": row.action_type,
         "resource_type": row.resource_type,
         "resource_id": row.resource_id,
+        "timestamp_utc": row.timestamp_utc.isoformat() if row.timestamp_utc else None,
+        "request_source": row.request_source,
+        "metadata_json": row.metadata_json,
         "status": row.status,
         "request_method": row.request_method,
         "request_path": row.request_path,
@@ -87,21 +94,49 @@ def list_audit_logs(
 
 @router.get("/audit-logs/export.json")
 def export_audit_logs_json(
+    request: Request,
     tenant: dict = Depends(resolve_tenant),
     db: Session = Depends(get_db),
     current_user=Depends(require_tenant_roles("tenant_admin", "site_admin")),
 ):
     rows = _tenant_rows(db, tenant["tenant_id"], 5000)
+    log_audit_event(
+        db,
+        tenant_id=tenant["tenant_id"],
+        tenant_name=tenant["tenant_name"],
+        actor_email=current_user["user_email"],
+        actor_role=current_user["role_name"],
+        action_type="audit_logs_export_json",
+        resource_type="audit_log_export",
+        resource_id=tenant["tenant_id"],
+        request=request,
+        details={"format": "json", "row_count": len(rows)},
+        compliance_flag=True,
+    )
     return JSONResponse({"items": [_response(r) for r in rows]})
 
 
 @router.get("/audit-logs/export.csv")
 def export_audit_logs_csv(
+    request: Request,
     tenant: dict = Depends(resolve_tenant),
     db: Session = Depends(get_db),
     current_user=Depends(require_tenant_roles("tenant_admin", "site_admin")),
 ):
     items = [_response(r) for r in _tenant_rows(db, tenant["tenant_id"], 5000)]
+    log_audit_event(
+        db,
+        tenant_id=tenant["tenant_id"],
+        tenant_name=tenant["tenant_name"],
+        actor_email=current_user["user_email"],
+        actor_role=current_user["role_name"],
+        action_type="audit_logs_export_csv",
+        resource_type="audit_log_export",
+        resource_id=tenant["tenant_id"],
+        request=request,
+        details={"format": "csv", "row_count": len(items)},
+        compliance_flag=True,
+    )
     return StreamingResponse(
         iter([_csv_text(items)]),
         media_type="text/csv",
@@ -111,11 +146,25 @@ def export_audit_logs_csv(
 
 @router.get("/audit-logs/export.xlsx")
 def export_audit_logs_xlsx(
+    request: Request,
     tenant: dict = Depends(resolve_tenant),
     db: Session = Depends(get_db),
     current_user=Depends(require_tenant_roles("tenant_admin", "site_admin")),
 ):
     items = [_response(r) for r in _tenant_rows(db, tenant["tenant_id"], 5000)]
+    log_audit_event(
+        db,
+        tenant_id=tenant["tenant_id"],
+        tenant_name=tenant["tenant_name"],
+        actor_email=current_user["user_email"],
+        actor_role=current_user["role_name"],
+        action_type="audit_logs_export_xlsx",
+        resource_type="audit_log_export",
+        resource_id=tenant["tenant_id"],
+        request=request,
+        details={"format": "xlsx", "row_count": len(items)},
+        compliance_flag=True,
+    )
     return StreamingResponse(
         iter([_xlsx_bytes(items)]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -125,11 +174,25 @@ def export_audit_logs_xlsx(
 
 @router.get("/audit-logs/export.bundle.zip")
 def export_audit_logs_bundle(
+    request: Request,
     tenant: dict = Depends(resolve_tenant),
     db: Session = Depends(get_db),
     current_user=Depends(require_tenant_roles("tenant_admin", "site_admin")),
 ):
     items = [_response(r) for r in _tenant_rows(db, tenant["tenant_id"], 5000)]
+    log_audit_event(
+        db,
+        tenant_id=tenant["tenant_id"],
+        tenant_name=tenant["tenant_name"],
+        actor_email=current_user["user_email"],
+        actor_role=current_user["role_name"],
+        action_type="audit_logs_export_bundle",
+        resource_type="audit_log_export",
+        resource_id=tenant["tenant_id"],
+        request=request,
+        details={"format": "bundle.zip", "row_count": len(items)},
+        compliance_flag=True,
+    )
 
     bio = BytesIO()
     with zipfile.ZipFile(bio, "w", zipfile.ZIP_DEFLATED) as zf:

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.authz import require_roles
+from app.audit import log_audit_event
 from app.deps import get_db
 from app.db import models
 
@@ -66,6 +67,7 @@ def get_pending_reviews(
 def submit_qa_review(
     inspection_id: int,
     payload: QAReviewPayload,
+    request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "spd_manager")),
 ):
@@ -111,5 +113,23 @@ def submit_qa_review(
     db.add(row)
     db.commit()
     db.refresh(row)
+
+    log_audit_event(
+        db,
+        tenant_id=row.tenant_id,
+        tenant_name=row.tenant_name,
+        actor_email=getattr(current_user, "email", "unknown"),
+        actor_role=getattr(current_user, "role", "unknown"),
+        action_type="inspection_update",
+        resource_type="inspection",
+        resource_id=row.id,
+        request=request,
+        details={
+            "qa_review_status": row.qa_review_status,
+            "qa_reviewer": row.qa_reviewer,
+            "override_applied": not payload.approve_model,
+        },
+        compliance_flag=True,
+    )
 
     return {"item": inspection_response(row)}

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.deps import get_db
 from app.db import models
+from app.audit import log_audit_event
 from app.jobs.inspection_job import run_inspection
 from app.metering import record_usage_event, check_quota
 from app.event_dispatcher import dispatch_event
@@ -28,6 +29,7 @@ def inspection_response(row: models.Inspection) -> dict:
 
 @router.post("/stream/frame")
 async def stream_frame(
+    request: Request,
     frame: UploadFile = File(...),
     vendor_name: str = Form("unknown"),
     site_name: str = Form("default-site"),
@@ -53,6 +55,25 @@ async def stream_frame(
     db.add(row)
     db.commit()
     db.refresh(row)
+
+    log_audit_event(
+        db,
+        tenant_id=tenant["tenant_id"],
+        tenant_name=tenant["tenant_name"],
+        actor_email="system",
+        actor_role="system",
+        action_type="inspection_create",
+        resource_type="inspection",
+        resource_id=row.id,
+        request=request,
+        details={
+            "file_name": row.file_name,
+            "vendor_name": row.vendor_name,
+            "site_name": row.site_name,
+            "status": row.status,
+        },
+        compliance_flag=True,
+    )
 
     record_usage_event(
         db,
