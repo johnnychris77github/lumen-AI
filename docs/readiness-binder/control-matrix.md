@@ -1,0 +1,35 @@
+# Control Matrix
+
+This matrix maps enterprise hardening PRs #4 through #32 to implemented controls, evidence, tests, residual risks, and planned improvements. It is a readiness artifact and does not claim formal certification.
+
+| Control Area | Implemented Controls | Evidence PRs | Test Files | Residual Risks | Planned Improvements |
+| --- | --- | --- | --- | --- | --- |
+| Alert tenant isolation | Alerts feed/open/history/export/action endpoints scoped by `TenantMembership` | #4 | `backend/tests/test_alerts_tenant_authorization.py` | Helper duplication across route groups | Centralize tenant-scoped query helpers |
+| Audit immutability | Append-only audit helper and tests for no update/delete behavior | #5 | `backend/tests/test_audit_immutability.py` | DB-level enforcement depends on production database | Extend migration-backed protection |
+| Rate limiting | API rate limits for read/write/auth/export classes with audit events | #6, #28 | `backend/tests/test_rate_limiting.py`, `backend/tests/test_redis_rate_limiting.py` | Route adoption and Redis HA validation | Wire dependency across all protected route families |
+| Security headers | Centralized backend/API security headers and HSTS behavior | #7 | `backend/tests/test_security_headers.py` | Frontend/static CSP needs deployment validation | Validate headers in deployed browser sessions |
+| Secrets management | Production config validation, masking, unsafe default rejection | #8 | `backend/tests/test_secrets_management.py` | External secret manager not introduced | Integrate with deployment secret store |
+| Session/token hardening | Centralized token helper, 401/403 separation, production token restrictions | #9 | `backend/tests/test_session_token_hardening.py` | Full OAuth/OIDC not completed in that PR | JWT/OIDC readiness path in PRs #16 to #20 |
+| Audit hash chaining | Audit chain hash fields, chain creation and verification helper | #10 | `backend/tests/test_audit_hash_chain.py` | External anchoring was future work | External notary provider in PR #31 |
+| Migration governance | Alembic migration foundation and production migration docs | #11 | Alembic validation commands | Historical backfills not included | Backfill and CI migration validation |
+| Historical audit hash backfill | Tenant-by-tenant deterministic backfill script with dry-run/force modes | #12 | `backend/tests/test_audit_hash_backfill.py` | Requires audit columns before execution | Operational runbook and restore verification |
+| DB-level audit protection | PostgreSQL triggers/functions to prevent audit update/delete | #13 | `backend/tests/test_audit_db_protection.py` | SQLite cannot enforce same production safeguards | PostgreSQL validation in staging |
+| Audit anchoring | Internal anchor table/helper/endpoints | #14 | `backend/tests/test_audit_anchor.py` | Internal-only anchoring initially | Scheduled and external provider support |
+| Audit anchor scheduling | Scheduled internal anchor service and safe summaries | #15 | `backend/tests/test_audit_anchor_scheduler.py` | No external scheduler dependency wired | Cron/Celery/managed scheduler integration |
+| JWT/OIDC readiness | Claim validation and actor extraction scaffolding | #16 | `backend/tests/test_jwt_oidc_readiness.py` | No live JWKS fetch in initial PR | JWKS signature validation |
+| JWKS signature validation | RS256/JWKS signature verification and cache behavior | #17 | `backend/tests/test_jwks_signature_validation.py` | Live provider testing remains customer-specific | Staging IdP validation |
+| OIDC claim mapping | Generic, Azure AD, Okta, Auth0, and custom claim profiles | #18 | `backend/tests/test_oidc_claim_mapping.py` | Customer claims vary by tenant | Customer-specific mapping validation |
+| Tenant JIT provisioning | Controlled OIDC tenant membership creation with audit events | #19 | `backend/tests/test_oidc_tenant_jit.py` | Disabled by default and requires policy approval | IdP onboarding runbook |
+| JWT plus JIT flow | JWT validation and JIT membership provisioning wired into protected flow | #20 | `backend/tests/test_jwt_jit_auth_flow.py` | Live OIDC end-to-end remains future work | Customer IdP pilots |
+| Object authorization audit | Repository-wide audit of remaining lookup risks | #21 | Documentation-only | Findings require follow-up remediation | Patch next high-risk route groups |
+| Portfolio tenant scoping | Portfolio, tenant insight, and remediation routes scoped by membership | #22 | `backend/tests/test_portfolio_tenant_authorization.py`, `backend/tests/test_tenant_insight_authorization.py`, `backend/tests/test_tenant_remediation_authorization.py` | Helper duplication | Shared authorization library |
+| Agent and PowerBI scoping | Agent and PowerBI routes authenticated and tenant-scoped | #23 | `backend/tests/test_agent_tenant_authorization.py`, `backend/tests/test_powerbi_tenant_authorization.py` | Broader analytics groups remained | Analytics/reporting PR #24 |
+| Analytics/reporting scoping | Vendor/site/tenant/review/model/QA/board/digest routes scoped or admin-only | #24 | `backend/tests/test_analytics_tenant_authorization.py`, `backend/tests/test_reporting_digest_tenant_authorization.py`, `backend/tests/test_qa_review_tenant_authorization.py` | Export edge cases require ongoing review | Central export authorization helper |
+| Control evidence index | Control categories mapped to PR evidence and residual gaps | #25 | Documentation validation | Needs updates as PRs merge | Keep index current per release |
+| CI security validation | Compile checks, security tests, migration validation, dependency scan, summary artifact | #26 | Security workflow jobs | Missing tests only run after merge | Enforce required checks in branch protection |
+| Deployment runbook and review packet | Enterprise deployment and procurement/security review docs | #27 | Documentation validation | Customer-specific operational validation needed | Rehearse production deployment runbook |
+| Redis rate limiting | Distributed Redis-backed counters with fallback/fail-closed modes | #28 | `backend/tests/test_redis_rate_limiting.py` | Redis HA and failover require staging validation | Managed Redis runbook and alerts |
+| SCIM lifecycle provisioning | Disabled-by-default SCIM user/group lifecycle, tenant allow-lists, audit events | #29 | `backend/tests/test_scim_lifecycle.py` | Minimal SCIM spec coverage | Live Azure AD/Okta/Auth0 validation |
+| Frontend CSP/static hardening | CSP guidance, static scanner, Nginx header baseline | #30 | `backend/tests/test_frontend_static_security.py` | Inline styles require temporary CSP exception | Move styles to static CSS and browser-test CSP |
+| External audit notary provider | External HTTP anchor provider, safe payload, fallback/fail-closed modes | #31 | `backend/tests/test_external_audit_anchor_provider.py` | Provider trust and retention are external dependencies | Vendor selection and live notary pilot |
+| Readiness binder | Structured questionnaire, matrix, architecture, vendor review guide, risk register | #32 | Markdown/reference validation | Binder must remain current | Update binder each release |
