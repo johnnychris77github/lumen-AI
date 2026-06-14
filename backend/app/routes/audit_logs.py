@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
+from app.core.audit_anchor import create_audit_chain_anchor, list_audit_chain_anchors
 from app.deps import get_db
 from app.db import models
 from app.tenant import resolve_tenant
@@ -34,6 +35,19 @@ def _response(row: models.AuditLog) -> dict:
         "client_ip": row.client_ip,
         "details": row.details,
         "compliance_flag": row.compliance_flag,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _anchor_response(row: models.AuditChainAnchor) -> dict:
+    return {
+        "id": row.id,
+        "tenant_id": row.tenant_id,
+        "anchor_hash": row.anchor_hash,
+        "last_audit_log_id": row.last_audit_log_id,
+        "records_covered": row.records_covered,
+        "anchor_provider": row.anchor_provider,
+        "anchor_reference": row.anchor_reference,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
@@ -83,6 +97,26 @@ def list_audit_logs(
 ):
     rows = _tenant_rows(db, tenant["tenant_id"], limit)
     return {"items": [_response(r) for r in rows]}
+
+
+@router.post("/audit/integrity/anchor")
+def create_audit_anchor(
+    tenant: dict = Depends(resolve_tenant),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_tenant_roles("tenant_admin", "site_admin")),
+):
+    anchor = create_audit_chain_anchor(db, tenant["tenant_id"], provider="internal")
+    return _anchor_response(anchor)
+
+
+@router.get("/audit/integrity/anchors")
+def audit_anchor_history(
+    tenant: dict = Depends(resolve_tenant),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_tenant_roles("tenant_admin", "site_admin")),
+):
+    rows = list_audit_chain_anchors(db, tenant["tenant_id"])
+    return {"items": [_anchor_response(row) for row in rows]}
 
 
 @router.get("/audit-logs/export.json")
