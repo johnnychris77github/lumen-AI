@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.core.audit_integrity import attach_audit_hash
 from app.db import models
 
 
@@ -39,7 +40,7 @@ def log_audit_event(
         details=json.dumps(details or {}, default=str)[:4000],
         compliance_flag=bool(compliance_flag),
     )
-    db.add(row)
+    attach_audit_hash(db, row)
     db.commit()
     db.refresh(row)
     return row
